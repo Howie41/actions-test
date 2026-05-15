@@ -19,6 +19,7 @@
 #include "task.h"
 
 #include "Canbus.hpp"
+#include "Hwt101.hpp"
 #include "Motor.hpp"
 #include "ROSCom.hpp"
 #include "UartPort.hpp"
@@ -35,6 +36,7 @@
 osThreadId_t CAN1_Send_TaskHandle;
 osThreadId_t CAN2_Send_TaskHandle;
 osThreadId_t CAN3_Send_TaskHandle;
+osThreadId_t uart2ProcessTaskHandle;
 osThreadId_t uart3ProcessTaskHandle;
 osThreadId_t usbcdcProcessTaskHandle;
 
@@ -62,10 +64,12 @@ DM4310Motor arm4310_motor(&fdcan2_bus, 0x301, 0, 0x01, 0,
 
 // 串口外设（回调+信号量唤醒处理线程进行解包）
 void onUart3RxCb(const uint8_t *data, size_t len, void *user);
+void onUart2RxCb(const uint8_t *data, size_t len, void *user);
 
 void onUsbRxCb(const uint8_t *data, size_t len, void *user);
 
 extern UART_HandleTypeDef huart3;
+extern UART_HandleTypeDef huart2;
 
 DMA_BUFFER_ATTR static uint8_t uart3_rx_dma[64];
 DMA_BUFFER_ATTR static uint8_t uart3_tx_dma[64];
@@ -73,10 +77,23 @@ UartPort uart3_port(&huart3, uart3_rx_dma, sizeof(uart3_rx_dma), uart3_tx_dma,
                     sizeof(uart3_tx_dma), onUart3RxCb, nullptr);
 osSemaphoreId_t uart3_rx_semphore = NULL;
 
+DMA_BUFFER_ATTR static uint8_t uart2_rx_dma[64];
+DMA_BUFFER_ATTR static uint8_t uart2_tx_dma[64];
+UartPort uart2_port(&huart2, uart2_rx_dma, sizeof(uart2_rx_dma), uart2_tx_dma,
+                    sizeof(uart2_tx_dma), onUart2RxCb, nullptr);
+osSemaphoreId_t uart2_rx_semphore = NULL;
+
 // Xbox控制器（基于uart3）
 XboxRemote xbox_remote(uart3_port);
 TypedTopicPublisher<pub_Xbox_Data> xbox_data_pub("xbox");
 pub_Xbox_Data xbox_msg;
+// HWT101 陀螺仪
+volatile float g_hwt101_yaw_deg = 0.0f;
+//volatile float g_hwt101_pitch_deg = 0.0f;
+//volatile float g_hwt101_roll_deg = 0.0f;
+//同样 需要roll和pitch再开启
+volatile uint32_t g_hwt101_frame_count = 0;
+Hwt101Parser hwt101_parser;
 
 // usb
 osSemaphoreId_t usbcdc_rx_semphore = NULL;
@@ -119,9 +136,11 @@ uint8_t comServiceInit() {
   fdcan2_bus.registerDevice(&arm4310_motor);
 
   // 串口外设
+   uart2_rx_semphore = osSemaphoreNew(1, 0, NULL);
+  uart2_port.startRxDmaIdle();
   uart3_rx_semphore = osSemaphoreNew(1, 0, NULL);
   uart3_port.startRxDmaIdle();
-
+ 
   // Xbox控制器初始化
   xbox_remote.init();
 
@@ -130,6 +149,14 @@ uint8_t comServiceInit() {
   ros_protocol.init();
   UsbPort::Instance().SetRxCallback(onUsbRxCb, NULL);
   return 0;
+}
+
+// 回调函数
+void onUart2RxCb(const uint8_t *data, size_t len, void *user) {
+  (void)user;
+  if (data != nullptr && len > 0 && uart2_rx_semphore != NULL) {
+    (void)osSemaphoreRelease(uart2_rx_semphore);
+  }
 }
 
 void onUart3RxCb(const uint8_t *data, size_t len, void *user) {
@@ -146,6 +173,7 @@ void onUsbRxCb(const uint8_t *data, size_t len, void *user) {
   }
 }
 
+//can发送任务
 void can1SendTask(void *argument) {
   TickType_t currentTime = xTaskGetTickCount();
 
@@ -205,6 +233,27 @@ void can3SendTask(void *argument) {
   }
 }
 
+//接收并处理任务
+void uart2RxProcessTask(void *argument){
+(void)argument;
+
+for (;;) {
+  (void)osSemaphoreAcquire(uart2_rx_semphore, osWaitForever);
+
+   UartPort::Packet packet{};
+    while (uart2_port.Read(packet)) {
+      for (uint16_t i = 0; i < packet.len; ++i) {
+        if (hwt101_parser.processByte(packet.data[i])) {
+          //g_hwt101_roll_deg = hwt101_parser.rollDeg();
+          //g_hwt101_pitch_deg = hwt101_parser.pitchDeg();
+          g_hwt101_yaw_deg = hwt101_parser.yawDeg();
+          g_hwt101_frame_count = hwt101_parser.frameCount();
+        }
+      }
+    }
+}
+}
+
 void uart3RxProcessTask(void *argument) {
   (void)argument;
   if(!xbox_data_pub.IsValid()) {
@@ -243,6 +292,7 @@ void uart3RxProcessTask(void *argument) {
     }
   }
 }
+
 
 
 void usbCdcProcessTask(void *argument) {
