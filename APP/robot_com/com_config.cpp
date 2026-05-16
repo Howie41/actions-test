@@ -59,8 +59,8 @@ C620Motor chassis_motor4(&fdcan3_bus, 0x204, 0, 0x200, 0);
 //
 C610Motor arm2006_motor(&fdcan2_bus, 0x205, 0, 0x1FF, 0);
 C620Motor arm3508_motor(&fdcan2_bus, 0x206, 0, 0x1FF, 0);
-DM4310Motor arm4310_motor(&fdcan2_bus, 0x301, 0, 0x01, 0,
-                         DM4310Motor::PosWithSpeed);
+DM43xxMotor arm4310_motor(&fdcan2_bus, 0x301, 0, 0x01, 0,
+                         DM43xxMotor::PosWithSpeed);
 
 // 串口外设（回调+信号量唤醒处理线程进行解包）
 void onUart3RxCb(const uint8_t *data, size_t len, void *user);
