@@ -62,6 +62,11 @@ C620Motor arm3508_motor(&fdcan2_bus, 0x206, 0, 0x1FF, 0);
 DM4310Motor arm4310_motor(&fdcan2_bus, 0x301, 0, 0x01, 0,
                          DM4310Motor::PosWithSpeed);
 
+//尾部的电机
+C610Motor tail_claw_move_motor(&fdcan3_bus, 0x207, 0, 0x1FF, 0);
+C620Motor tail_claw_roll_motor(&fdcan3_bus, 0x208, 0, 0x1FF, 0);
+
+
 // 串口外设（回调+信号量唤醒处理线程进行解包）
 void onUart3RxCb(const uint8_t *data, size_t len, void *user);
 void onUart2RxCb(const uint8_t *data, size_t len, void *user);
@@ -196,10 +201,10 @@ void can2SendTask(void *argument) {
     int16_t commands[4] = {0};
 
     // arm motor
-    commands[0] = static_cast<int16_t>(arm2006_motor.cmdTrans()); // 0x201
-    commands[1] = static_cast<int16_t>(arm3508_motor.cmdTrans()); // 0x203
-    commands[2] = static_cast<int16_t>(0); // 0x203
-    commands[3] = static_cast<int16_t>(0); // 0x204
+    commands[0] = static_cast<int16_t>(arm2006_motor.cmdTrans()); // 0x205
+    commands[1] = static_cast<int16_t>(arm3508_motor.cmdTrans()); // 0x206
+    commands[2] = static_cast<int16_t>(tail_claw_move_motor.cmdTrans()); // 0x207
+    commands[3] = static_cast<int16_t>(tail_claw_roll_motor.cmdTrans()); // 0x208
     packDJIMotorCanMsg(pack.id, arm_motor_ids, commands, 4, pack.data, len);
     // fdcan2_bus.addCanMsg(pack);
 
