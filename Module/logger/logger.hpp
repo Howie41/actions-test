@@ -8,6 +8,7 @@
 #include <cstdio>
 
 #include "UartPort.hpp"
+#include "stm32h7xx_hal_def.h"
 
 class Logger {
     public:
@@ -16,7 +17,7 @@ class Logger {
         Logger(UartPort &uart) : uart_(uart) {}
         ~Logger() = default;
 
-        void log(const char *format, ...) {
+        HAL_StatusTypeDef log(const char *format, ...) {
             char buffer[BUFFER_LENGTH];
             va_list args;
             va_start(args, format);
@@ -27,11 +28,12 @@ class Logger {
                 if (write_len >= sizeof(buffer)) {
                     write_len = sizeof(buffer) - 1;
                 }
-                uart_.writeDma(reinterpret_cast<const uint8_t *>(buffer), write_len);
+                return uart_.writeDma(reinterpret_cast<const uint8_t *>(buffer), write_len);
             }
+            return HAL_ERROR;
         }
 
-        void log_priority(uint8_t priority, const char *format, ...) {
+        HAL_StatusTypeDef log_priority(uint8_t priority, const char *format, ...) {
             char buffer[BUFFER_LENGTH];
             va_list args;
             va_start(args, format);
@@ -42,8 +44,9 @@ class Logger {
                 if (write_len >= sizeof(buffer)) {
                     write_len = sizeof(buffer) - 1;
                 }
-                uart_.writeDma(reinterpret_cast<const uint8_t *>(buffer), write_len);
+                return uart_.writeDma(reinterpret_cast<const uint8_t *>(buffer), write_len);
             }
+            return HAL_ERROR;
         }
 
         void set_priority(uint8_t priority) {
