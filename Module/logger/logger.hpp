@@ -1,7 +1,7 @@
 /**
  * @file logger.hpp
  * @author zhy (Howie41)
- * @brief 
+ * @brief 从串口打印简单信息
  * @date 2026-05-23
  */
 #include <cstdarg>
