@@ -27,6 +27,8 @@
 #include "NavProtocol.hpp"
 #include "lift_task.h"
 #include "tail_claw_task.hpp"
+#include "motor_task.h"
+
 /* module层接口头文件 */
 
 /* Definitions for TaskHand */
@@ -36,6 +38,7 @@ extern osThreadId_t CAN3_Send_TaskHandle;
 extern osThreadId_t uart2ProcessTaskHandle;
 extern osThreadId_t uart3ProcessTaskHandle;
 extern osThreadId_t Debug_TaskHandle;
+extern osThreadId_t Motor_TaskHandle;
 extern osThreadId_t ChassisTaskHandle;
 extern osThreadId_t ControlTaskHandle;
 extern osThreadId_t usbcdcProcessTaskHandle;
@@ -46,6 +49,7 @@ extern osThreadId_t PcComTaskHandle;
 
 
 void osTaskInit(void) {
+
   const osThreadAttr_t CAN1_SendTaskHandle_attributes = {
       .name = "CAN1_Send_TaskHandle",
       .stack_size = 256 * 4,
@@ -53,6 +57,9 @@ void osTaskInit(void) {
   };
   CAN1_Send_TaskHandle =
       osThreadNew(can1SendTask, NULL, &CAN1_SendTaskHandle_attributes);
+
+
+
 
   const osThreadAttr_t CAN2_SendTaskHandle_attributes = {
       .name = "CAN2_Send_TaskHandle",
@@ -62,6 +69,9 @@ void osTaskInit(void) {
   CAN2_Send_TaskHandle =
       osThreadNew(can2SendTask, NULL, &CAN2_SendTaskHandle_attributes);
 
+
+
+
   const osThreadAttr_t CAN3_SendTaskHandle_attributes = {
       .name = "CAN3_Send_TaskHandle",
       .stack_size = 256 * 4,
@@ -70,12 +80,30 @@ void osTaskInit(void) {
   CAN3_Send_TaskHandle =
       osThreadNew(can3SendTask, NULL, &CAN3_SendTaskHandle_attributes);
 
+
+
+
   const osThreadAttr_t DebugTaskHandle_attributes = {
       .name = "Debug_TaskHandle",
       .stack_size = 512 * 4,
       .priority = (osPriority_t)osPriorityNormal,
   };
-  Debug_TaskHandle = osThreadNew(debugTask, NULL, &DebugTaskHandle_attributes);
+  Debug_TaskHandle = 
+      osThreadNew(debugTask, NULL, &DebugTaskHandle_attributes);
+
+
+
+
+  const osThreadAttr_t MotorTaskHandle_attributes = {
+      .name = "Motor_TaskHandle",
+      .stack_size = 512 * 4,
+      .priority = (osPriority_t)osPriorityNormal,
+  };
+  Motor_TaskHandle = 
+      osThreadNew(motorTask, NULL, &MotorTaskHandle_attributes);
+
+
+
 
   const osThreadAttr_t ChassisTaskHandle_attributes = {
       .name = "Chassis_TaskHandle",
@@ -85,6 +113,9 @@ void osTaskInit(void) {
   ChassisTaskHandle =
       osThreadNew(chassisTask, NULL, &ChassisTaskHandle_attributes);
 
+
+
+
   const osThreadAttr_t ControlTaskHandle_attributes = {
       .name = "Control_TaskHandle",
       .stack_size = 512 * 4,
@@ -93,6 +124,9 @@ void osTaskInit(void) {
   ControlTaskHandle =
       osThreadNew(controlTask, NULL, &ControlTaskHandle_attributes);
 
+
+
+
   const osThreadAttr_t Uart2ProcessTaskHandle_attributes = {
       .name = "Uart2Process_TaskHandle",
       .stack_size = 512 * 4,
@@ -100,6 +134,9 @@ void osTaskInit(void) {
   };
   uart2ProcessTaskHandle =
       osThreadNew(uart2RxProcessTask, NULL, &Uart2ProcessTaskHandle_attributes);
+
+
+
 
   const osThreadAttr_t Uart3ProcessTaskHandle_attributes = {
       .name = "Uart3Process_TaskHandle",

@@ -113,6 +113,12 @@ public:
      */
     float getRawCurrentTorque(void) const { return raw_torque_; }
 
+    
+    void posWithSpeedControl(float pos, float speed) {
+        tar_sum_pos_ = pos;
+        max_speed_ = speed;
+    };
+
     // 电机最原始output指令(速度/位置/电流)
     float cmd_;
     float max_cmd_{99999};
@@ -132,6 +138,9 @@ public:
   float speed_{0};       // 速度
   float torque_{0};      // 力矩
     float temperature_{0}; // 温度
+
+    float tar_sum_pos_{0};
+    float max_speed_{0};
 };
 
 enum DJIMotorCanGroup {

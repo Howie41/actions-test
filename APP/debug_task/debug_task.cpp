@@ -13,6 +13,7 @@
  */
 #include "debug_task.h"
 #include "Motor.hpp"
+#include "cmsis_os2.h"
 #include "stm32h723xx.h"
 #include "stm32h7xx_hal_tim.h"
 #include "topic_pool.h"
@@ -24,16 +25,12 @@
 #include "logger.hpp"
 #include "com_config.h"
 #include "pid_controller.h"
-#include "pm20s.hpp"
-#include "tail_claw_task.hpp"
-
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 
 
 osThreadId_t Debug_TaskHandle;
-
 static inline void debugInit(void) {
 
 }
@@ -41,13 +38,8 @@ static inline void debugInit(void) {
 extern Logger logger;
 
 void debugTask(void *argument) {
-  (void)argument;
-  TickType_t currentTime;
-  currentTime = xTaskGetTickCount();
-  debugInit();
-  
+  osThreadExit();
   for (;;) {
-    logger.log("hello, world!\n");
-    vTaskDelayUntil(&currentTime, 100);
+    osDelay(1);
   }
 }
