@@ -19,6 +19,7 @@
 #include "topics.hpp"
 #include "FreeRTOS.h"
 #include "task.h"
+#include <vector>
 
 
 osThreadId_t Motor_TaskHandle;
@@ -28,60 +29,79 @@ extern C620Motor arm3508_motor;
 extern C610Motor arm2006_motor;
 
 
-static PID_t arm3508_pos_pid{
-    .Kp = 45.0f,
-    .Ki = 0.0f,
-    .Kd = 2.5f,
-    .MaxOut = 60.0f,
-    .DeadBand = 0.1f
-};
-static PID_t arm3508_speed_pid{
-    .Kp = 2000.0f,
-    .Ki = 0.06f,
-    .Kd = 1.8f,
-    .MaxOut = 12000.0f,
-    .DeadBand = 0.5f
+struct MotorPlanningUnit {
+    MotorBase *motor;
+    PID_t pos_pid;
+    PID_t speed_pid;
 };
 
 
-static PID_t arm2006_pos_pid{
-    .Kp = 45.0f,
-    .Ki = 0.0f,
-    .Kd = 2.5f,
-    .MaxOut = 60.0f,
-    .DeadBand = 0.1f
+class MotorPlanningSystem {
+public:
+    void registerMotor(MotorBase &motor) {
+        motor_planning_units_.push_back(MotorPlanningUnit{
+            .motor = &motor,
+            .pos_pid = {
+                .Kp = 45.0f,
+                .Ki = 0.0f,
+                .Kd = 2.5f,
+                .MaxOut = 60.0f,
+                .DeadBand = 0.1f
+            },
+            .speed_pid = {
+                .Kp = 2000.0f,
+                .Ki = 0.06f,
+                .Kd = 1.8f,
+                .MaxOut = 12000.0f,
+                .DeadBand = 0.5f
+            }
+        });
+
+        PID_Init(&motor_planning_units_.back().pos_pid);
+        PID_Init(&motor_planning_units_.back().speed_pid);
+    }
+
+    void update() {
+        for (auto &unit : motor_planning_units_) {
+            unit.pos_pid.MaxOut = unit.motor->updatePosProcess();
+            unit.motor->setMotorCmd(PID_Calculate(&unit.speed_pid, unit.motor->getCurrentSpeed(), PID_Calculate(&unit.pos_pid, unit.motor->getCurrentSumPos(), unit.motor->tar_sum_pos_)));
+        }
+    }
+private:
+    std::vector<MotorPlanningUnit> motor_planning_units_;
+
 };
-static PID_t arm2006_speed_pid{
-    .Kp = 2000.0f,
-    .Ki = 0.06f,
-    .Kd = 1.8f,
-    .MaxOut = 12000.0f,
-    .DeadBand = 0.5f
-};
 
-
-void motorInit() {
-    PID_Init(&arm3508_pos_pid);
-    PID_Init(&arm3508_speed_pid);
-
-    PID_Init(&arm2006_pos_pid);
-    PID_Init(&arm2006_speed_pid);
-}
 
 void motorTask(void *argument) {
   TickType_t currentTime;
   currentTime = xTaskGetTickCount();
-  motorInit();
+
+    MotorPlanningSystem motor_planning_system;
+
+    motor_planning_system.registerMotor(arm3508_motor);
+    motor_planning_system.registerMotor(arm2006_motor);
 
   for (;;) {
-
-    arm3508_pos_pid.MaxOut = arm3508_motor.updatePosProcess();
-    arm3508_motor.setMotorCmd(PID_Calculate(&arm3508_speed_pid, arm3508_motor.getCurrentSpeed(), PID_Calculate(&arm3508_pos_pid, arm3508_motor.getCurrentSumPos(), arm3508_motor.tar_sum_pos_)));
-
-    arm2006_pos_pid.MaxOut = arm2006_motor.updatePosProcess();
-    arm2006_motor.setMotorCmd(PID_Calculate(&arm2006_speed_pid, arm2006_motor.getCurrentSpeed(), PID_Calculate(&arm2006_pos_pid, arm2006_motor.getCurrentSumPos(), arm2006_motor.tar_sum_pos_)));
-
+    motor_planning_system.update();
     vTaskDelayUntil(&currentTime, 1);
 
   }
 }
+
+
+
+// static PID_t arm3508_pos_pid{
+//     .Kp = 45.0f,
+//     .Ki = 0.0f,
+//     .Kd = 2.5f,
+//     .MaxOut = 60.0f,
+//     .DeadBand = 0.1f
+// };
+// static PID_t arm3508_speed_pid{
+//     .Kp = 2000.0f,
+//     .Ki = 0.06f,
+//     .Kd = 1.8f,
+//     .MaxOut = 12000.0f,
+//     .DeadBand = 0.5f
+// };
