@@ -73,6 +73,7 @@ enum class Lift3508Mode {
  MANUAL,
  TARGETING,
 };
+Lift3508Mode lift_3508_mode = Lift3508Mode::MANUAL;
 PID_t lift_2006_motor1_pid = {
     .Kp = 100.0f, .Ki = 10.0f, .Kd = 0.0f, .MaxOut = 20000, .DeadBand = 0.3f, .Improve = NONE};
 PID_t lift_2006_motor2_pid = {
