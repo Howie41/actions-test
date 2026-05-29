@@ -24,7 +24,7 @@ void PcCom::init()
 }
 
 void PcCom::ProcessRx() {
-  if (usb_ != nullptr) {
+    if (usb_ != nullptr) {
     UsbPort::Packet rx{};
     while (usb_->Read(rx)) {
       manager_.receive(rx.data, rx.data + rx.len);
@@ -43,12 +43,13 @@ void PcCom::ProcessRx() {
 void PcCom::OnPacket(Packet packet) {
   switch(packet.code()){
     case static_cast<uint16_t>(PcCmd::tail_claw_msg):{
-        if(packet.body_size()!=sizeof(tail_claw_msg))
-          return;
+      if(packet.body_size()!=sizeof(tail_claw_msg))
+        return;
 
-          tail_claw_msg msg{};
-          std::memcpy(&msg,packet.body_data(),sizeof(tail_claw_msg));
-          pc_tail_claw_pub_.Publish(msg);
+      tail_claw_msg msg{};
+      std::memcpy(&msg,packet.body_data(),sizeof(tail_claw_msg));
+      pc_tail_claw_pub_.Publish(msg);
+      break;
     }
 
     //可以有很多像上面那样的

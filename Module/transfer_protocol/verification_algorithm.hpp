@@ -98,65 +98,6 @@ protected:
   }
 };
 
-//这是 CRC8 算法，使用的多项式是 0x07
-class crc8_algorithm : public verify_algorithm<crc8_algorithm> {
-protected:
-  friend verify_algorithm<crc8_algorithm>;
-
-  template <typename ConstIt, typename It>
-  void calculate_code_impl(ConstIt begin, ConstIt end, It code_loc) noexcept {
-    //它直接把 code_loc 指向的位置当 CRC 存储位置，并先清零
-    It crc = code_loc; // CRC located in last byte of message
-    uint8_t currentByte;
-    *crc = 0;
-
-    //遍历数据，计算 CRC 值，跳过 code_loc 指向的位置，因为这是 CRC 存储位置，不参与计算
-    for (auto i = begin; i != end; i++) { // Execute for all bytes of a message
-      if (i == crc) {
-        continue;
-      }
-      currentByte = *i; // Retrieve a byte to be sent from Array
-      for (int j = 0; j < 8; j++) {
-        //它取当前 CRC 的最高位，和当前数据字节的最低位异或。如果结果为 1，就左移后再异或多项式 0x07：
-        if ((*crc >> 7) ^
-            (currentByte & 0x01)) // update CRC based result of XOR operation
-        {
-          *crc = (*crc << 1) ^ 0x07;
-        } else {
-          *crc = (*crc << 1);
-        }
-        currentByte = currentByte >> 1;
-      } // for CRC bit
-    } // for message byte
-  }
-//验证函数也是类似的逻辑，重新计算 CRC 值，并和 code_loc 指向的位置的值进行比较，
-// 如果相等则验证通过
-  template <typename It>
-  bool verify_code_impl(It begin, It end, It code_loc) noexcept {
-    uint8_t crc_val = 0;
-    uint8_t* crc = &crc_val; // CRC located in last byte of message
-    uint8_t currentByte;
-    *crc = 0;
-    for (auto i = begin; i != end; i++) { // Execute for all bytes of a message
-      if (i == crc) {
-        continue;
-      }
-      currentByte = *i; // Retrieve a byte to be sent from Array
-      for (int j = 0; j < 8; j++) {
-        if ((*crc >> 7) ^
-            (currentByte & 0x01)) // update CRC based result of XOR operation
-        {
-          *crc = (*crc << 1) ^ 0x07;
-        } else {
-          *crc = (*crc << 1);
-        }
-        currentByte = currentByte >> 1;
-      } // for CRC bit
-    } // for message byte
-    return crc_val == *code_loc;
-  }
-};
-
 //这是 CRC16 算法，使用的多项式是 0x8005，初始值是 0xFFFF
 class crc16_algorithm : public verify_algorithm<crc16_algorithm> {
 protected:

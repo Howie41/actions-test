@@ -105,13 +105,14 @@ void osTaskInit(void) {
   uart3ProcessTaskHandle =
       osThreadNew(uart3RxProcessTask, NULL, &Uart3ProcessTaskHandle_attributes);
 
-  const osThreadAttr_t UsbcdcProcessTaskHandle_attributes = {
+ /* const osThreadAttr_t UsbcdcProcessTaskHandle_attributes = {
       .name = "UsbcdcProcess_TaskHandle",
       .stack_size = 512 * 4,
       .priority = (osPriority_t)osPriorityNormal1,
   };
   usbcdcProcessTaskHandle =
       osThreadNew(usbCdcProcessTask, NULL, &UsbcdcProcessTaskHandle_attributes);
+      */
 //用于定位
   const osThreadAttr_t NavControlTaskHandle_attributes = {
       .name = "NavControl_TaskHandle",
@@ -124,7 +125,7 @@ void osTaskInit(void) {
 //用于上位机和下位机通讯的协议解析和封装
   const osThreadAttr_t PcComTaskHandle_attributes = {
       .name = "PcCom_TaskHandle",
-      .stack_size = 128 * 4,
+      .stack_size = 512 * 4,
       .priority = (osPriority_t)osPriorityNormal,
   };
   PcComTaskHandle =
