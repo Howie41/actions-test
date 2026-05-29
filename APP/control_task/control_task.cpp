@@ -61,7 +61,17 @@ void Xbox_Data_Process() {
   }
 }
 //处理升降控制输入并发布升降指令
+static bool xbox_y_last = false;
+static bool xbox_a_last = false;
 void Lift_Data_Process(){
+  // 按钮Y的请求升高功能
+    lift_cmd.request_high = (control_xbox_cmd.btnY && !xbox_y_last);
+    xbox_y_last = control_xbox_cmd.btnY;
+
+    // 按钮A的请求降低功能
+    lift_cmd.request_low = (control_xbox_cmd.btnA && !xbox_a_last);
+    xbox_a_last = control_xbox_cmd.btnA;
+
     lift_cmd.lift_up = control_xbox_cmd.btnY;
     lift_cmd.lift_down = control_xbox_cmd.btnA;
 

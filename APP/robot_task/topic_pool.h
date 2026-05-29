@@ -67,9 +67,12 @@ typedef struct {
 
 
 typedef struct{
- bool lift_up;
- bool lift_down;
+ bool lift_up;        //按住Y 持续上升
+ bool lift_down;      //按住A 持续下降
  float lift_2006_input;
+
+ bool request_high;  //按一下Y 请求升高到高位
+bool request_low;   //按一下A 请求降低到低位
 } pub_lift_cmd;
 
 typedef struct {
