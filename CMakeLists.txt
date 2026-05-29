@@ -88,7 +88,6 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined symbols
     # DEBUG_ARM
-    DM_MOTOR_SINGLE
 )
 
 # Remove wrong libob.a library dependency when using cpp files
@@ -99,4 +98,10 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     stm32cubemx
 
     # Add user defined libraries
+)
+
+# Enable floating-point support for printf/snprintf family in newlib-nano
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+    LINKER:-u,_printf_float
+    LINKER:-u,_scanf_float
 )

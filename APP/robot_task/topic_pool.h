@@ -16,6 +16,7 @@
 #pragma once
 #include "fdcan.h"
 #include "usart.h"
+#include <cstdint>
 #include <stdbool.h>
 
 #pragma pack(1)
@@ -29,8 +30,14 @@ typedef struct {
 typedef struct {
   bool btnY;
   bool btnA;
+  bool btnShare;
+  bool btnView;
+  bool btnMenu;
+  bool btnXbox;
   bool btnLB;
   bool btnRB;
+  bool btnLS;
+  bool btnRS;
   uint16_t trigLT;
   uint16_t trigRT;
   bool btnDirUp;
@@ -55,6 +62,20 @@ typedef struct {
   float linear_x_;
   float linear_y_;
   float omega_;
+  bool nav_mode_;
 } pub_chassis_cmd;
+
+
+typedef struct{
+ bool lift_up;
+ bool lift_down;
+ float lift_2006_input;
+} pub_lift_cmd;
+
+typedef struct {
+  uint8_t address1;
+  uint8_t address2;
+  uint8_t data;
+} pub_infrared_msg;
 
 #pragma pack()
