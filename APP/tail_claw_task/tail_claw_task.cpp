@@ -154,7 +154,6 @@ void get_weapon_match_state(tail_claw_msg* msg)
 
 void tail_claw_move_close()
 { 
-
     if(weapon_match_state_&motor_move_left)
     {
         if(tail_claw_move_target_pos > 0.0f) // 添加边界检查，确保目标位置不小于0
