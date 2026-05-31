@@ -35,9 +35,9 @@
 #include "topic_pool.h"
 #include "usart.h"
 #include <cstddef>
+#include <cstdio>
 #include <cstdint>
 #include <cstring>
-
 
 osThreadId_t CAN1_Send_TaskHandle;
 osThreadId_t CAN2_Send_TaskHandle;
@@ -45,6 +45,7 @@ osThreadId_t CAN3_Send_TaskHandle;
 osThreadId_t uart2ProcessTaskHandle;
 osThreadId_t uart3ProcessTaskHandle;
 osThreadId_t usbcdcProcessTaskHandle;
+osThreadId_t PcComTaskHandle;
 
 extern FDCAN_HandleTypeDef hfdcan1;
 extern FDCAN_HandleTypeDef hfdcan2;
@@ -137,6 +138,8 @@ Logger logger(uart10_port);
 osSemaphoreId_t usbcdc_rx_semphore = NULL;
 ROSProtocol ros_protocol(nullptr, &UsbPort::Instance());
 
+//上下位机通信
+PcCom pc_com(UsbPort::Instance());
 uint8_t comServiceInit() {
   // can外设初始化
   canFilterInit(&hfdcan1, FDCAN_STANDARD_ID, FDCAN_FILTER_TO_RXFIFO0, 0, 0);
@@ -312,9 +315,20 @@ void can3SendTask(void *argument) {
 
 //接收并处理任务
 void uart2RxProcessTask(void *argument){
-(void)argument;
+  (void)argument;
+  //测试与小电脑的通信，大家可以参考怎么订阅
+  /*TickType_t currentTime = xTaskGetTickCount();
+  for (;;) {
 
-for (;;) {
+  static TypedTopicSubscriber<tail_claw_msg> tail_claw_subscriber("pc_tail_claw_pub",8);
+   tail_claw_msg msg;
+  if(tail_claw_subscriber.TryGet(&msg))
+  {
+    char buf[32];
+    int len = snprintf(buf, sizeof(buf), "distance=%u\r\n", msg.distance);
+    uart2_port.write(reinterpret_cast<const uint8_t *>(buf), len, 100);
+  }
+  vTaskDelayUntil(&currentTime, 2);*/
   (void)osSemaphoreAcquire(uart2_rx_semphore, osWaitForever);
 
    UartPort::Packet packet{};
@@ -329,7 +343,7 @@ for (;;) {
       }
     }
 }
-}
+
 
 void uart3RxProcessTask(void *argument) {
   (void)argument;
@@ -377,7 +391,7 @@ void uart3RxProcessTask(void *argument) {
 }
 
 
-
+/*
 void usbCdcProcessTask(void *argument) {
     (void)argument;
 
@@ -400,7 +414,23 @@ void usbCdcProcessTask(void *argument) {
         }
     }
 }
+*/
 
+// 下面是协议解析和校验算法的实现，基于之前的设计
+void PcComTask(void *argument) {
+  (void)argument;
+  pc_com.init();
+
+  TickType_t currentTime = xTaskGetTickCount();
+
+  for (;;) {
+    osSemaphoreAcquire(usbcdc_rx_semphore, 1);
+    pc_com.ProcessRx();
+    
+    pc_com.ProcessTx();
+    vTaskDelayUntil(&currentTime, 1);
+  }
+}
 /*
 // ============ 原来的ROSProtocol方式（保留备用） ============
 void usbCdcProcessTask_Origin(void *argument) {

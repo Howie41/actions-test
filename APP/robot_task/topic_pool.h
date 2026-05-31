@@ -78,4 +78,9 @@ typedef struct {
   uint8_t data;
 } pub_infrared_msg;
 
+struct tail_claw_msg {
+   int16_t distance;
+};
+
+
 #pragma pack()

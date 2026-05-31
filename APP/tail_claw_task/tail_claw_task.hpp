@@ -28,7 +28,7 @@ void KFS_open(bool open);
 float set_move_pos(float pos,PID_t *pos_pid,PID_t *speed_pid);
 float set_roll_pos(float pos,PID_t *pos_pid,PID_t *speed_pid);
 
-void get_weapon_match_state();
+void get_weapon_match_state(tail_claw_msg* msg);
 void tail_claw_move_close();
 
 #endif

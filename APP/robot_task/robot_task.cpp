@@ -41,7 +41,7 @@ extern osThreadId_t ControlTaskHandle;
 extern osThreadId_t usbcdcProcessTaskHandle;
 extern osThreadId_t tail_claw_TaskHandle;
 extern osThreadId_t NavControlTaskHandle;
-extern osThreadId_t LiftTaskHandle;
+extern osThreadId_t LiftTaskHandle;extern osThreadId_t PcComTaskHandle;
 
 
 void osTaskInit(void) {
@@ -108,14 +108,14 @@ void osTaskInit(void) {
   uart3ProcessTaskHandle =
       osThreadNew(uart3RxProcessTask, NULL, &Uart3ProcessTaskHandle_attributes);
 
-  const osThreadAttr_t UsbcdcProcessTaskHandle_attributes = {
+ /* const osThreadAttr_t UsbcdcProcessTaskHandle_attributes = {
       .name = "UsbcdcProcess_TaskHandle",
       .stack_size = 512 * 4,
       .priority = (osPriority_t)osPriorityNormal1,
   };
   usbcdcProcessTaskHandle =
       osThreadNew(usbCdcProcessTask, NULL, &UsbcdcProcessTaskHandle_attributes);
-
+*/
   const osThreadAttr_t tail_claw_TaskHandle_attributes = {
       .name = "tail_claw_TaskHandle",
       .stack_size = 128 * 4,
@@ -124,6 +124,7 @@ void osTaskInit(void) {
   tail_claw_TaskHandle =
       osThreadNew(tail_claw_task, NULL, &tail_claw_TaskHandle_attributes);
 
+      
 //用于定位
   const osThreadAttr_t NavControlTaskHandle_attributes = {
       .name = "NavControl_TaskHandle",
@@ -140,4 +141,13 @@ void osTaskInit(void) {
   };
   LiftTaskHandle =
       osThreadNew(liftTask, NULL, &LiftTaskHandle_attributes);
+
+//用于上位机和下位机通讯的协议解析和封装
+  const osThreadAttr_t PcComTaskHandle_attributes = {
+      .name = "PcCom_TaskHandle",
+      .stack_size = 512 * 4,
+      .priority = (osPriority_t)osPriorityNormal,
+  };
+  PcComTaskHandle =
+      osThreadNew(PcComTask, NULL, &PcComTaskHandle_attributes);
 }
