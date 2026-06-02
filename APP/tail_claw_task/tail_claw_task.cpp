@@ -25,6 +25,8 @@ extern pub_Xbox_Data control_xbox_cmd;
 bool weapon_claw_open = false;//武器气泵的夹紧，ture 为吸，false为放
 bool KFS_claw_open = false;//KFS的夹紧，ture 为吸，false为放
 bool air_pump = false;
+static bool btn_share_last = false;
+static bool btn_menu_last = false;
 uint8_t weapon_match_state_ = 0x00;//武器在配对过程中上位机发的信号
 
 float tail_claw_move_target_pos= 2.5f;
@@ -104,6 +106,11 @@ float set_roll_pos(float pos,PID_t *pos_pid,PID_t *speed_pid)
     float speed_cmd=PID_Calculate(pos_pid,tail_claw_roll_motor.getCurrentSumPos(),roll_pos);
     return PID_Calculate(speed_pid,tail_claw_roll_motor. getCurrentSpeed(),speed_cmd);
 }
+static bool consumeButtonRisingEdge(bool current_state, bool *last_state) {
+  const bool rising_edge = current_state && !(*last_state);
+  *last_state = current_state;
+  return rising_edge;
+}
 
 // PC上位机距离控制和Xbox手柄控制合并处理
 // msg != nullptr: PC上位机发来了距离数据
@@ -138,6 +145,9 @@ void get_weapon_match_state(tail_claw_msg* msg)
     else if(control_xbox_cmd.btnDirRight)
     {
         weapon_match_state_ = (weapon_match_state_ & ~motor_move_left) | motor_move_right;
+    }else
+    {
+        weapon_match_state_ = weapon_match_state_ & ~(motor_move_left | motor_move_right);
     }
 
     // ---- Xbox D-pad 上下: 3508翻转 ----
@@ -263,6 +273,13 @@ void tail_claw_task(void *argument) {
         else
         {
             get_weapon_match_state(nullptr);       // 仅Xbox手柄控制
+        }
+        if (consumeButtonRisingEdge(control_xbox_cmd.btnShare, &btn_share_last)) {
+                    weapon_claw_open = !weapon_claw_open;
+        }
+
+        if (consumeButtonRisingEdge(control_xbox_cmd.btnMenu, &btn_menu_last)) {
+                    air_pump = !air_pump;
         }
         tail_claw_move_close();
         weapon_match_state_=0x00;//每次执行完都清零，等待下一次指令
