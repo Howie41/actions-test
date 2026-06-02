@@ -17,8 +17,9 @@
 osThreadId_t StateMachineTaskHandle;
 
 static std::atomic<RobotState> current_state{RobotState::begin};
-static pub_infrared_msg latest_infrared_msg{};
+
 TypedTopicSubscriber<pub_infrared_msg> infrared_sub(InfraredModule::INFRARED_MSG_TOPIC, 1);
+TypedTopicSubscriber<pub_qr_code_parsed> qr_code_sub("qr_code_parsed", 1);
 
 /**
  * @brief 等待直到条件满足
@@ -66,6 +67,39 @@ void move_to_pos(int16_t x, int16_t y, int16_t yaw) {
     wait_until([&]() { return nav_control::arrived; });
 }
 
+/**
+ * @brief 清空之前的命令，避免误触发
+ * @note 两个Subscriber的长度都是1，各自TryGet一次就能清空之前的命令了
+ * @note 不要放入 wait_until，只清理一次就好了
+ */
+void clean_previous_cmd() {
+    pub_infrared_msg temp_im{};
+    pub_qr_code_parsed temp_qr{};
+    infrared_sub.TryGet(&temp_im);
+    qr_code_sub.TryGet(&temp_qr);
+}
+
+/**
+ * @brief 获取来自R1的命令
+ * @return 0x00 表示没有命令，其余值表示实际收到的命令
+ * @note 调用前请用 clean_previous_cmd() 清空之前的命令，避免误触发
+ * @note 如果二维码和红外都有命令，二维码的命令优先
+ */
+uint8_t get_cmd_from_r1() {
+    uint8_t cmd{0x00};
+    pub_infrared_msg infrared_msg{.data = 0x00};
+    pub_qr_code_parsed qr_code_msg{.data = 0x00};
+
+    // 先取红外（作为默认），再用二维码覆盖
+    if (infrared_sub.TryGet(&infrared_msg)) {
+        cmd = infrared_msg.data;
+    }
+    if (qr_code_sub.TryGet(&qr_code_msg)) {
+        cmd = qr_code_msg.data;
+    }
+    return cmd;
+}
+
 void stateMachineTask(void *argument) {
     for (;;) {
         switch (current_state.load()) {
@@ -93,10 +127,9 @@ void stateMachineTask(void *argument) {
 
             // R2松开武器头夹爪，等待操作手决策，决定是否拼装新的武器
             case RobotState::wait_for_cmd: {
+                clean_previous_cmd();
                 wait_until([&]() -> bool {
-                    if (!infrared_sub.TryGet(&latest_infrared_msg)) return false;
-
-                    switch (latest_infrared_msg.data) {
+                    switch (get_cmd_from_r1()) {
                         case 0x1A: // 夹取新的武器头
                             change_state_to(RobotState::go_to_SHR);
                             return true;
