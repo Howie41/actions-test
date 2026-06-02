@@ -13,6 +13,7 @@
  */
 #include "debug_task.h"
 #include "Motor.hpp"
+#include "cmsis_os2.h"
 #include "stm32h723xx.h"
 #include "stm32h7xx_hal_tim.h"
 #include "topic_pool.h"
@@ -24,8 +25,8 @@
 #include "logger.hpp"
 #include "com_config.h"
 #include "pid_controller.h"
-#include "pm20s.hpp"
-#include "tail_claw_task.hpp"
+#include "motor_task.hpp"
+#include "Motor.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -33,21 +34,19 @@
 
 
 osThreadId_t Debug_TaskHandle;
-
 static inline void debugInit(void) {
 
 }
 
 extern Logger logger;
 
+/** @brief 调试任务函数
+ * @note 该函数用于测试电机控制和PID调节功能，周期性地更新电机命令以验证系统响应。实际使用中可以根据需要修改测试内容或删除该任务。
+ *  @param argument 任务参数
+ */
 void debugTask(void *argument) {
-  (void)argument;
-  TickType_t currentTime;
-  currentTime = xTaskGetTickCount();
-  debugInit();
-  
+  osThreadExit();
   for (;;) {
-    logger.log("hello, world!\n");
-    vTaskDelayUntil(&currentTime, 100);
+    osDelay(1);
   }
 }

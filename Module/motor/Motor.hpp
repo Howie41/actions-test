@@ -22,6 +22,7 @@
 #include "Canbus.hpp"
 #include <cmath>
 #include <stdint.h>
+#include <stdio.h>
 
 #define RAD_2_DEGREE 57.2957795f       // 180/pi  弧度转换成角度
 #define DEGREE_2_RAD 0.01745329252f    // pi/180  角度转化成弧度
@@ -113,6 +114,66 @@ public:
      */
     float getRawCurrentTorque(void) const { return raw_torque_; }
 
+    /** @brief 一个纯函数，用于表示vx图象的缓冲区曲线（二次曲线拟合结果，已归一化）
+     *  @param x 0~1
+     *  @return y 0~1
+     */
+    float f_vx_buffer(float x) {
+        return (31.0f * x - 14.0f + sqrtf(196.0f + 29884.0f * x - 18507.0f * x * x)) / 124.0f * 0.996f;
+    }
+
+    /** @brief 位置与速度控制
+     *  @note 支持初始段与结束段双缓冲速度控制
+     *  @param pos 目标位置
+     *  @param speed 最大速度
+     *  @param buffer_pos 平滑位移
+     *  @param ini_speed 初始速度
+     *  @param end_speed 结束速度
+     */
+    void posWithSpeedControl(float pos, float speed, float ini_buffer_pos, float end_buffer_pos, float ini_speed = 0.0f, float end_speed = 0.0f) {
+        if (fabsf(pos - tar_sum_pos_) < 0.1f) {
+            return;
+        }
+        tar_sum_pos_ = pos;
+        max_speed_ = speed;
+        ini_buffer_pos_ = ini_buffer_pos;
+        end_buffer_pos_ = end_buffer_pos;
+        ini_speed_ = ini_speed < 0.6f ? (ini_speed == 0.0 ? (getCurrentSpeed() < 0.6f ? 0.6f : getCurrentSpeed()) : 0.6f) : ini_speed;
+        end_speed_ = end_speed;
+
+        ini_buffer_rate_ = fabsf(ini_buffer_pos_ / (tar_sum_pos_ - ini_sum_pos_));
+        end_buffer_rate_ = fabsf(end_buffer_pos_ / (tar_sum_pos_ - ini_sum_pos_));
+        pos_process_ = 0.0f;
+        if (is_finished_) {
+            ini_sum_pos_ = getCurrentSumPos();
+        }
+    };
+
+    /** @brief 更新速度进程
+     *  @note 该函数根据当前位置与目标位置的关系动态调整速度，以实现平滑的加速和减速过程（三角函数曲线）
+     *  @return 当前速度进程值
+     */
+    float updateSpeedProcess() {
+        is_finished_ = getIsFinished();
+        pos_process_ = (getCurrentSumPos() - ini_sum_pos_) / (tar_sum_pos_ - ini_sum_pos_);
+        if (pos_process_ < ini_buffer_rate_) {  // 加速阶段：速度从ini_speed_平滑过渡到max_speed_
+            v_ = ini_speed_ + (max_speed_ - ini_speed_) * f_vx_buffer(pos_process_ / ini_buffer_rate_);
+        } else if (pos_process_ > 1.0f - end_buffer_rate_) {  // 减速阶段：速度从max_speed_平滑过渡到end_speed_
+            v_ = end_speed_ + (max_speed_ - end_speed_) * f_vx_buffer((1.0f - pos_process_) / end_buffer_rate_);
+        } else {  // 匀速阶段：保持在max_speed_
+            v_ = max_speed_;
+        }
+        return v_;
+    }
+
+    /** @brief 检查是否完成
+     *  @param threshold 百分比阈值：0.0f表示刚进入末端缓冲区就认为完成，1.0f表示结束末端缓冲区才认为完成
+     *  @return 是否完成
+     */
+    bool getIsFinished(float threshold = 0.5f) {
+        return fabsf(tar_sum_pos_ - getCurrentSumPos()) < end_buffer_pos_ * (1.0f - threshold);
+    }
+
     // 电机最原始output指令(速度/位置/电流)
     float cmd_;
     float max_cmd_{99999};
@@ -122,16 +183,30 @@ public:
 
     // 电机状态量(最原始)
     float raw_single_pos_{0}; // 单圈位置
-  float raw_sum_pos_{0};    // 多圈累加
-  float raw_speed_{0};      // 速度
-  float raw_torque_{0};     // 力矩
+    float raw_sum_pos_{0};    // 多圈累加
+    float raw_speed_{0};      // 速度
+    float raw_torque_{0};     // 力矩
 
     // 配置减速比(转子->输出端)
-  float single_pos_{0};  // 单圈位置
-  float sum_pos_{0};     // 多圈累加
-  float speed_{0};       // 速度
-  float torque_{0};      // 力矩
+    float single_pos_{0};  // 单圈位置
+    float sum_pos_{0};     // 多圈累加
+    float speed_{0};       // 速度
+    float torque_{0};      // 力矩
     float temperature_{0}; // 温度
+
+    float tar_sum_pos_{0};
+    float ini_sum_pos_{0};
+    float ini_buffer_pos_{0};
+    float end_buffer_pos_{0};
+    float max_speed_{0};
+    float ini_speed_{0};
+    float end_speed_{0};
+    float pos_process_{0.0f};
+    float ini_buffer_rate_{0.0f};
+    float end_buffer_rate_{0.0f};
+    float v_{0.0f};
+
+    bool is_finished_{true};
 };
 
 enum DJIMotorCanGroup {
@@ -424,10 +499,11 @@ public:
      * @param mode 初始控制模式。
      */
     DM43xxMotor(CanBus *manager, uint32_t id, bool is_extid, uint32_t tx_id,
-                            bool tx_is_extid, ControlMode mode = PosWithSpeed)
+                            bool tx_is_extid, ControlMode mode = PosWithSpeed, bool is_4340 = false)
             : CanDevice(manager, id, is_extid, tx_id, tx_is_extid) {
         tx_base_id_ = tx_id;
         ctrl_mode_ = mode;
+        is_4340_ = is_4340;
     }
 
     void init(float reduction_ratio = 10.0f, float max_cmd = 18.0f,
@@ -454,7 +530,7 @@ public:
             return;
         }
 
-        pack.id = tx_id_;
+        pack.id = tx_id_ | 0x100;
         pack.type = CanBus::Type::STANDARD;
         (void)manager_->addCanMsg(pack);
     }
@@ -776,7 +852,10 @@ private:
      * @param mode 控制模式。
      * @return 相对基址的 ID 偏移。
      */
-    static uint16_t modeOffsetFromCtrlMode(ControlMode mode) {
+    uint16_t modeOffsetFromCtrlMode(ControlMode mode) {
+        if (is_4340_) {
+            return 0x000;
+        }
         if (mode == Mit) {
             return 0x000;
         }
@@ -849,4 +928,6 @@ private:
     ControlMode ctrl_mode_{PosWithSpeed};
     MotorModeCmd motor_mode_cmd_{ModeNone};
     uint32_t tx_base_id_{0};
+    bool is_4340_{false};
 };
+
