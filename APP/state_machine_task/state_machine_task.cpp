@@ -11,46 +11,14 @@
 
 #include "state_machine_task.h"
 #include "NavProtocol.hpp"
+#include "infrared_com.hpp"
+#include "topic_pool.h"
+#include "topics.hpp"
 osThreadId_t StateMachineTaskHandle;
 
 static std::atomic<RobotState> current_state{RobotState::begin};
-
-void stateMachineTask(void *argument) {
-    for (;;) {
-        switch (current_state.load()) {
-        #ifdef MATCH_CWTY /** ========== 崇武探幽 单项赛 ========== */
-
-            case RobotState::begin:
-                break;
-
-            case RobotState::go_to_SHR:
-                break;
-
-            case RobotState::aim_at_weapon:
-                break;
-
-            case RobotState::catch_weapon:
-                break;
-
-            case RobotState::rotate_weapon_claw:
-                break;
-
-            case RobotState::wait_for_cmd:
-                break;
-
-        #elif MATCH_JGCB /** ========== 九宫藏宝 单项赛 ========== */
-
-
-        #endif /** ============================================= */
-            
-            default: // 不应该到达这里
-                break;
-
-        }
-
-        osDelay(1);
-    }
-}
+static pub_infrared_msg latest_infrared_msg{};
+TypedTopicSubscriber<pub_infrared_msg> infrared_sub(InfraredModule::INFRARED_MSG_TOPIC, 1);
 
 /**
  * @brief 等待直到条件满足
@@ -96,4 +64,62 @@ void move_to_pos(int16_t x, int16_t y, int16_t yaw) {
     nav_control::arrived = false;
     taskEXIT_CRITICAL();
     wait_until([&]() { return nav_control::arrived; });
+}
+
+void stateMachineTask(void *argument) {
+    for (;;) {
+        switch (current_state.load()) {
+        #ifdef MATCH_CWTY /** ========== 崇武探幽 单项赛 ========== */
+
+            case RobotState::begin: {
+                break;
+            }
+
+            case RobotState::go_to_SHR: {
+                break;
+            }
+
+            case RobotState::aim_at_weapon: {
+                break;
+            }
+
+            case RobotState::catch_weapon: {
+                break;
+            }
+
+            case RobotState::rotate_weapon_claw: {
+                break;
+            }
+
+            // R2松开武器头夹爪，等待操作手决策，决定是否拼装新的武器
+            case RobotState::wait_for_cmd: {
+                wait_until([&]() -> bool {
+                    if (!infrared_sub.TryGet(&latest_infrared_msg)) return false;
+
+                    switch (latest_infrared_msg.data) {
+                        case 0x1A: // 夹取新的武器头
+                            change_state_to(RobotState::go_to_SHR);
+                            return true;
+                        case 0x1B: // 进入梅林
+                            change_state_to(RobotState::go_to_MF);
+                            return true;
+                        default:
+                            return false;
+                    }
+                });
+                break;
+            }
+
+        #elif MATCH_JGCB /** ========== 九宫藏宝 单项赛 ========== */
+
+
+        #endif /** ============================================= */
+            
+            default: // 不应该到达这里
+                break;
+
+        }
+
+        osDelay(1);
+    }
 }
