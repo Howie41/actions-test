@@ -27,7 +27,6 @@
 #include "NavProtocol.hpp"
 #include "lift_task.h"
 #include "tail_claw_task.hpp"
-#include "motor_task.h"
 #include "motor_task.hpp"
 
 /* module层接口头文件 */
