@@ -27,8 +27,8 @@
 #include "NavProtocol.hpp"
 #include "lift_task.h"
 #include "tail_claw_task.hpp"
-#include "motor_task.h"
 #include "motor_task.hpp"
+#include "arm_task.hpp"
 
 /* module层接口头文件 */
 
@@ -40,6 +40,7 @@ extern osThreadId_t uart2ProcessTaskHandle;
 extern osThreadId_t uart3ProcessTaskHandle;
 extern osThreadId_t Debug_TaskHandle;
 extern osThreadId_t Motor_TaskHandle;
+extern osThreadId_t Arm_TaskHandle;
 extern osThreadId_t ChassisTaskHandle;
 extern osThreadId_t ControlTaskHandle;
 extern osThreadId_t usbcdcProcessTaskHandle;
@@ -102,6 +103,17 @@ void osTaskInit(void) {
   };
   Motor_TaskHandle = 
       osThreadNew(motorTask, NULL, &MotorTaskHandle_attributes);
+
+
+
+
+  const osThreadAttr_t ArmTaskHandle_attributes = {
+      .name = "Arm_TaskHandle",
+      .stack_size = 512 * 4,
+      .priority = (osPriority_t)osPriorityNormal,
+  };
+  Arm_TaskHandle = 
+      osThreadNew(armTask, NULL, &ArmTaskHandle_attributes);
 
 
 

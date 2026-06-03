@@ -29,8 +29,6 @@
 #define RPM_2_ANGLE_PER_SEC 6.0f       // 360/60,转每分钟 转化 度每秒
 #define RPM_2_RAD_PER_SEC 0.104719755f // ×2pi/60sec,转每分钟 转化 弧度每秒
 
-class C610Motor;
-
 class MotorBase {
 public:
     MotorBase() = default;
@@ -134,19 +132,28 @@ public:
         if (fabsf(pos - tar_sum_pos_) < 0.1f) {
             return;
         }
-        tar_sum_pos_ = pos;
-        max_speed_ = speed;
-        ini_buffer_pos_ = ini_buffer_pos;
-        end_buffer_pos_ = end_buffer_pos;
-        ini_speed_ = ini_speed < 0.6f ? (ini_speed == 0.0 ? (getCurrentSpeed() < 0.6f ? 0.6f : getCurrentSpeed()) : 0.6f) : ini_speed;
-        end_speed_ = end_speed;
-
-        ini_buffer_rate_ = fabsf(ini_buffer_pos_ / (tar_sum_pos_ - ini_sum_pos_));
-        end_buffer_rate_ = fabsf(end_buffer_pos_ / (tar_sum_pos_ - ini_sum_pos_));
-        pos_process_ = 0.0f;
         if (is_finished_) {
             ini_sum_pos_ = getCurrentSumPos();
         }
+        tar_sum_pos_ = pos;
+        max_speed_ = speed;
+        if (ini_buffer_pos < 1.0f) {
+            ini_buffer_pos_ = ini_buffer_pos * (tar_sum_pos_ - ini_sum_pos_);
+            ini_buffer_rate_ = ini_buffer_pos;
+        } else {
+            ini_buffer_pos_ = ini_buffer_pos;
+            ini_buffer_rate_ = fabsf(ini_buffer_pos_ / (tar_sum_pos_ - ini_sum_pos_));
+        }
+        if (end_buffer_pos < 1.0f) {
+            end_buffer_pos_ = end_buffer_pos * (tar_sum_pos_ - ini_sum_pos_);
+            end_buffer_rate_ = end_buffer_pos;
+        } else {
+            end_buffer_pos_ = end_buffer_pos;
+            end_buffer_rate_ = fabsf(end_buffer_pos_ / (tar_sum_pos_ - ini_sum_pos_));
+        }
+        ini_speed_ = ini_speed < 0.6f ? (ini_speed == 0.0 ? (getCurrentSpeed() < 0.6f ? 0.6f : getCurrentSpeed()) : 0.6f) : ini_speed;
+        end_speed_ = end_speed;
+        pos_process_ = 0.0f;
     };
 
     /** @brief 更新速度进程
@@ -512,6 +519,7 @@ public:
         setMaxCmd(max_cmd);
         ctrl_mode_ = mode;
         dmMotorEnable();
+        posWithSpeedControl(0.0f, 100.0f);
     }
 
     /**
