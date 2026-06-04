@@ -76,8 +76,6 @@ typedef struct{
 } pub_lift_cmd;
 
 typedef struct {
-  uint8_t address1;
-  uint8_t address2;
   uint8_t data;
 } pub_infrared_msg;
 
