@@ -32,6 +32,16 @@ uint8_t weapon_match_state_ = 0x00;//武器在配对过程中上位机发的信�
 float tail_claw_move_target_pos= 2.5f;
 float tail_claw_roll_target_pos= 0.0f;
 float move_cmd=0.0f;
+
+static constexpr int16_t match_enter_threshold = 5;    // 进入对准范围
+static constexpr int16_t match_exit_threshold  = 10;   // 退出对准范围，做滞回
+static constexpr uint8_t match_ok_count_limit   = 5;    // 连续5次才认为对准
+static constexpr uint8_t match_lost_count_limit = 3;    // 连续3次偏离才取消对准
+
+static uint8_t match_ok_count = 0;
+static uint8_t match_lost_count = 0;
+static bool weapon_matched_stable = false;
+
 PID_t tail_claw_move_pos_pid={
     .Kp = 0.05f,
     .Ki = 0.0f,
@@ -124,15 +134,59 @@ void get_weapon_match_state(tail_claw_msg* msg)
         {
             if(msg->distance < -5)
             {
-                weapon_match_state_ = (weapon_match_state_ & ~motor_move_right) | motor_move_left;
+                 weapon_match_state_ = (weapon_match_state_ & ~motor_move_right) | motor_move_left;
+
+                if(msg->distance < -match_enter_threshold)
+                {
+                    if(match_lost_count < match_lost_count_limit)
+                    {
+                        match_lost_count++;
+                    }
+
+                    if(match_lost_count >= match_lost_count_limit)
+                    {
+                        weapon_matched_stable = false;
+                        match_ok_count = 0;
+                        weapon_match_state_ &= ~ismatch;
+                    }
+                }
             }
             else if(msg->distance > 5)
             {
-                weapon_match_state_ = (weapon_match_state_ & ~motor_move_left) | motor_move_right;
+                 weapon_match_state_ = (weapon_match_state_ & ~motor_move_left) | motor_move_right;
+
+                if(msg->distance > match_exit_threshold)
+                {
+                    if(match_lost_count < match_lost_count_limit)
+                    {
+                        match_lost_count++;
+                    }
+
+                    if(match_lost_count >= match_lost_count_limit)
+                    {
+                        weapon_matched_stable = false;
+                        match_ok_count = 0;
+                        weapon_match_state_ &= ~ismatch;
+                     }
+                }
             }
             else
             {
-                weapon_match_state_ = weapon_match_state_ & ~(motor_move_left | motor_move_right);
+                 weapon_match_state_ = weapon_match_state_ & ~(motor_move_left | motor_move_right);
+
+                if(match_ok_count < match_ok_count_limit)
+                {
+                    match_ok_count++;
+                }
+
+                match_lost_count = 0;
+
+                if(match_ok_count >= match_ok_count_limit)
+                {
+                    weapon_matched_stable = true;
+                    weapon_match_state_ |= ismatch;
+                }
+
             }
         }
     }
@@ -162,26 +216,6 @@ void get_weapon_match_state(tail_claw_msg* msg)
     else
     {
         weapon_match_state_ = weapon_match_state_ & ~(motor_roll_down | motor_roll_up);
-    }
-
-    // ---- Share: 爪子开/合 (上升沿触发) ----
-    {
-        static bool last_share_btn = false;
-        if(control_xbox_cmd.btnShare && !last_share_btn)
-        {
-            weapon_claw_open = !weapon_claw_open;
-        }
-        last_share_btn = control_xbox_cmd.btnShare;
-    }
-
-    // ---- Menu: 气泵开关 (上升沿触发) ----
-    {
-        static bool last_menu_btn = false;
-        if(control_xbox_cmd.btnMenu && !last_menu_btn)
-        {
-            air_pump = !air_pump;
-        }
-        last_menu_btn = control_xbox_cmd.btnMenu;
     }
 }
 
@@ -256,7 +290,7 @@ void tail_claw_task(void *argument) {
     static bool has_last_distance = false;
 
     for(;;)
-    {
+    {   
         static TypedTopicSubscriber<tail_claw_msg> tail_claw_subscriber("pc_tail_claw_pub",8);
         tail_claw_msg msg;
         if(tail_claw_subscriber.TryGet(&msg))
@@ -282,7 +316,9 @@ void tail_claw_task(void *argument) {
                     air_pump = !air_pump;
         }
         tail_claw_move_close();
-        weapon_match_state_=0x00;//每次执行完都清零，等待下一次指令
+        weapon_match_state_ &= ~(motor_move_left | motor_move_right | motor_roll_up | motor_roll_down);
+        //每次执行完都清零，等待下一次指令,只清理左右移动和翻转的指令，
+        // ismatch位由状态机根据稳定的对准结果来控制，不受Xbox输入的影响
         vTaskDelayUntil(&currentTime, 1);
     }
 }
