@@ -8,8 +8,8 @@
 #include "stm32h7xx_hal_gpio.h"
 #include"topic_pool.h"
 
-constexpr float roll_reduction_ratio = 2.0f;     // 翻转的减速比
-constexpr float move_max_distance = 6.0f;        // 尾部移动的最大距离,单位厘米
+constexpr float roll_reduction_ratio = 2.5f;     // 翻转的减速比
+constexpr float move_max_distance = 31.0f;        // 尾部移动的最大距离,单位厘米
 constexpr float move_degree_per_cm = 360.0f/(3*3.1415926f); // 齿条齿轮: 1cm平移对应电机转角
 
 // 左右和滚的每次增量
@@ -63,7 +63,7 @@ PID_t tail_claw_move_speed_pid={
 };
 
 PID_t tail_claw_roll_pos_pid={
-    .Kp = 30.0f,
+    .Kp = 20.0f,
     .Ki = 0.0f,
     .Kd = 1.0f,
     .MaxOut = 100.0f,
@@ -72,8 +72,8 @@ PID_t tail_claw_roll_pos_pid={
 };
 
 PID_t tail_claw_roll_speed_pid={
-    .Kp = 120.0f,
-    .Ki = 10.0f,
+    .Kp = 80.0f,
+    .Ki = 8.0f,
     .Kd = 1.4f,
     .MaxOut = 2000.0f,
     .DeadBand = 0.3f,
