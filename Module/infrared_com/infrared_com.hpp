@@ -20,11 +20,15 @@
 #include <cstddef>
 #include <cstdint>
 #include <atomic>
+#include <array>
+#include <optional>
 
 class InfraredModule {
     public:
-        static constexpr uint32_t TX_MAX_TIMEOUT = 1000;
-        static constexpr const char *INFRARED_MSG_TOPIC = "infrared_msg";
+        typedef struct {
+            uint16_t uid;
+            uint8_t data;
+        } infrared_msg_t;
 
         explicit InfraredModule(UartPort &uart_port) : uart_port_(uart_port) {}
         ~InfraredModule() = default;
@@ -33,30 +37,75 @@ class InfraredModule {
          * @brief 由 UartPort 的接收回调转发进来
          * @param data 新收到的数据片段
          * @param len 数据长度
+         * @note 帧格式：0xAA 0xXX uid_lo uid_hi 0xXX 0xBB
          */
         static constexpr uint8_t HEADER = 0xAA;
         static constexpr uint8_t FOOTER = 0xBB;
-        static constexpr uint8_t RAW_LENGTH = 5; // 包括头尾的总长度
+        static constexpr size_t RAW_LENGTH = 6; // 包括头尾的总长度
+        static constexpr size_t MAX_SEARCH_LENGTH = 3; // 最大搜索长度
         void UartPortRxCbHandler(const uint8_t *data, size_t len) {
             if (data == nullptr || len == 0) return;
-                if (len < RAW_LENGTH) return;
-                for (size_t i = 0; i <= len - RAW_LENGTH; ++i) {
-                    // 0xAA 0xXX 0xXX 0xXX 0xBB
-                    if (data[i] == HEADER && data[i + RAW_LENGTH - 1] == FOOTER
-                        && data[i + 1] == data[i + 2] && data[i + 2] == data[i + 3]) {
-                        pub_infrared_msg msg{};
-                        msg.data = data[i + 1];
-                        infrared_pub_.Publish(msg);
+                if (len < MAX_SEARCH_LENGTH + RAW_LENGTH) return; // 不足以搜索一个完整包，丢弃
+                for (size_t i = 0; i <= MAX_SEARCH_LENGTH; ++i) {
+                    if (
+                        data[i] == HEADER && data[i + RAW_LENGTH - 1] == FOOTER // 检查帧头帧尾
+                        && data[i + 1] == data[i + 4] // 两个编码一致
+                    ) {
+                        infrared_msg_t ir_msg{};
+                        ir_msg.uid = static_cast<uint16_t>(data[i + 3]) << 8 | data[i + 2];
+                        ir_msg.data = data[i + 4];
+                        latest_msg_ = ir_msg;
+                        break; // 找到一个完整包后停止搜索
                     }
-                    break; // 只处理一个有效包
                 }
         }
 
-    private:
-        static constexpr uint8_t ACK_CODE = 0xF1;
+        infrared_msg_t getLatestMsg() { return latest_msg_; };
 
+    private:
         UartPort &uart_port_;
 
-        TypedTopicPublisher<pub_infrared_msg> infrared_pub_{INFRARED_MSG_TOPIC};
-        pub_infrared_msg infrared_msg_{};
+        infrared_msg_t latest_msg_{};
+};
+
+class InfraredModuleGroup {
+    public:
+        static constexpr size_t MAX_MODULE_NUM = 4;
+
+        InfraredModuleGroup() = default;
+        ~InfraredModuleGroup() = default;
+    
+    private:
+        uint16_t max_uid_received_ = 0;
+        std::array<std::optional<InfraredModule>, MAX_MODULE_NUM> infrared_modules_;
+
+        // TypedTopicPublisher<InfraredModule::infrared_msg_t> infrared_pub_{"infrared_msg"};
+        // InfraredModule::infrared_msg_t infrared_msg_{};
+
+    public:
+        bool addModule(const InfraredModule &module) {
+            for (auto &m : infrared_modules_) {
+                if (!m.has_value()) {
+                    m.emplace(module);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        std::optional<InfraredModule::infrared_msg_t> tryGet() {
+            uint16_t temp_max_uid = max_uid_received_;
+            std::optional<InfraredModule::infrared_msg_t> valid_latest_msg{std::nullopt};
+            for (auto &m : infrared_modules_) {
+                if (m.has_value()) {
+                    InfraredModule::infrared_msg_t msg = m.value().getLatestMsg();
+                    if (msg.uid > temp_max_uid) {
+                        valid_latest_msg.emplace(msg);
+                        temp_max_uid = msg.uid;
+                    }
+                }
+            }
+            max_uid_received_ = temp_max_uid;
+            return valid_latest_msg;
+        }
 };
