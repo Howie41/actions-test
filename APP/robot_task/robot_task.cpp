@@ -51,15 +51,15 @@ extern osThreadId_t PcComTaskHandle;
 #include "memory_map.h"
 
 /**
- * 静态创建任务栈和控制块，分配到 RAM_D2 上
+ * 静态创建任务栈和控制块，分配到 RAM_D1 上
  * @param sym 任务名，直接写，不是字符串，不需要写引号
  * @param stack_bytes 任务栈大小，单位字节
  * @param prio 任务优先级（osPriority_t）
  * @note 要在osTaskInit里调用osThreadNew来创建任务
  */
 #define DECLARE_STATIC_TASK(sym, stack_bytes, prio) \
-DMA_BUFFER_ATTR static StaticTask_t sym##ControlBlock; \
-DMA_BUFFER_ATTR static StackType_t sym##Stack[(stack_bytes) / sizeof(StackType_t)]; \
+RAM_D1_ATTR static StaticTask_t sym##ControlBlock; \
+RAM_D1_ATTR static StackType_t sym##Stack[(stack_bytes) / sizeof(StackType_t)]; \
 static const osThreadAttr_t sym##Handle_attributes = { \
     .name = #sym, \
     .cb_mem = &sym##ControlBlock, \
