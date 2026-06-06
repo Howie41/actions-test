@@ -59,6 +59,7 @@ bool runStairSM() {
     case 2:
       if (nav_control::arrived) {
         publishEvent(STAIR_EVT_HD_DONE);
+        nav_control::auto_enabled = false; 
         liftRequestLow();  // 请求降到低位
         g_stair_ctx.phase = 3;  // → LIFT_DOWN
       }
@@ -95,6 +96,7 @@ bool runStairSM() {
 
     // ---- Phase 5: 完成，回到 IDLE ----
     case 5:
+    publishEvent(g_stair_ctx.is_up ? 0x0204 : 0x0205); 
       g_stair_ctx.active = false;
       g_stair_ctx.phase = 0;
       nav_control::auto_enabled = false;  // 释放2006控制权回手动摇杆
@@ -104,5 +106,5 @@ bool runStairSM() {
       break;
   }
 
-  return true;
+  return (g_stair_ctx.phase != 2 && g_stair_ctx.phase != 4);;
 }

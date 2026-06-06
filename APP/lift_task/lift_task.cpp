@@ -62,16 +62,16 @@ float lift_2006_motor2_pid_out = 0.0f;
 float lift_3508_motor1_pid_out = 0.0f;
 float lift_3508_motor2_pid_out = 0.0f;
 
-constexpr float MAX_LIFT_2006_SPEED = 400.0f;
-constexpr float MAX_LIFT_3508_SPEED = 120.0f;
+constexpr float MAX_LIFT_2006_SPEED = 600.0f;
+constexpr float MAX_LIFT_3508_SPEED = 300.0f;
 constexpr float MAX_LIFT_3508_SYNC_COMP = 30.0f;
 
-constexpr float LIFT_RISE_SPEED    = 170.0f;   // 自动上升速度 (3508 RPM)
-constexpr float LIFT_FALL_SPEED    = 170.0f;   // 自动下降速度 (可以和上升不同)
+constexpr float LIFT_RISE_SPEED    = 200.0f;   // 自动上升速度 (3508 RPM)
+constexpr float LIFT_FALL_SPEED    = 200.0f;   // 自动下降速度 (可以和上升不同)
 constexpr float LIFT_POS_TOLERANCE =  2.0f;   // 位置到达判定容差 (度)
 
-constexpr float LIFT_LOW_POS = -40.0f;
-constexpr float LIFT_HIGH_POS = 525.0f;
+constexpr float LIFT_LOW_POS = -100.0f;
+constexpr float LIFT_HIGH_POS = 520.0f;
 
 constexpr float LIFT_2006_MOTOR1_DIR = 1.0f;
 constexpr float LIFT_2006_MOTOR2_DIR = -1.0f;
@@ -89,9 +89,9 @@ PID_t lift_2006_motor2_pid = {
     .Kp = 100.0f, .Ki = 10.0f, .Kd = 0.0f, .MaxOut = 10000, .DeadBand = 0.3f, .Improve = NONE};
 
 PID_t lift_3508_motor1_pid = {
-    .Kp = 100.0f, .Ki = 30.0f, .Kd = 0.3f, .MaxOut = 16000, .DeadBand = 0.1f, .Improve = NONE};
+    .Kp = 100.0f, .Ki = 30.0f, .Kd = 0.3f, .MaxOut = 30000, .DeadBand = 0.1f, .Improve = NONE};
 PID_t lift_3508_motor2_pid = {
-    .Kp = 100.0f, .Ki = 30.0f, .Kd = 0.3f, .MaxOut = 16000, .DeadBand = 0.1f, .Improve = NONE};
+    .Kp = 100.0f, .Ki = 30.0f, .Kd = 0.3f, .MaxOut = 30000, .DeadBand = 0.1f, .Improve = NONE};
 PID_t lift_3508_pos_pid = {
     .Kp = 9.0f, .Ki = 0.1f, .Kd = 0.0f, .MaxOut = MAX_LIFT_3508_SPEED, .DeadBand = 0.0f, .Improve = NONE};
 PID_t lift_3508_sync_pid = {
@@ -110,6 +110,8 @@ static inline float normalizeDeg(float angle_deg) {
   while (angle_deg < -180.0f) angle_deg += 360.0f;
   return angle_deg;
 }
+
+static inline bool liftIsLow();
 
 static inline void liftInit(void) {
   PID_Init(&lift_2006_motor1_pid);
@@ -270,6 +272,7 @@ void liftTask(void *argument) {
 
     // ===== high_mode_active 自动管理 =====
     const bool is_high = liftIsHigh();
+    const bool is_low = liftIsLow();
     if (is_high && !high_was_active) {
       nav_control::high_mode_active = true;
       high_yaw_lock_ref = g_chassis_yaw_deg;
@@ -277,13 +280,14 @@ void liftTask(void *argument) {
       // 通知上位机: 进入高位模式
       pc_nav_event_t evt{static_cast<uint16_t>(0x0202)};
       pc_nav_event_pub.Publish(evt);
-    } else if (!is_high && high_was_active) {
+      high_was_active = true;
+    } else if (is_low && high_was_active) {
       nav_control::high_mode_active = false;
       // 通知上位机: 退出高位模式
       pc_nav_event_t evt{static_cast<uint16_t>(0x0203)};
       pc_nav_event_pub.Publish(evt);
+      high_was_active = false;
     }
-    high_was_active = is_high;
 
     // ===== 响应自动导航到达后降位请求 =====
     if (high_nav_cmd.request_lower && is_high) {
@@ -313,6 +317,9 @@ void liftRequestHigh() {
   lift_3508_mode = Lift3508Mode::TARGETING;
   lift_3508_hold_enable = false;
   PID_Init(&lift_3508_pos_pid);
+  PID_Init(&lift_3508_motor1_pid);
+  PID_Init(&lift_3508_motor2_pid);
+  PID_Init(&lift_3508_sync_pid);
 }
 
 void liftRequestLow() {
@@ -320,6 +327,9 @@ void liftRequestLow() {
   lift_3508_mode = Lift3508Mode::TARGETING;
   lift_3508_hold_enable = false;
   PID_Init(&lift_3508_pos_pid);
+  PID_Init(&lift_3508_motor1_pid);
+  PID_Init(&lift_3508_motor2_pid);
+  PID_Init(&lift_3508_sync_pid);
 }
 
 bool liftAtTarget() {
@@ -330,8 +340,12 @@ float liftCurrentPos() {
   return lift_3508_avg_pos;
 }
 
+static inline bool liftIsLow() {
+  return (fabsf(lift_3508_avg_pos - LIFT_LOW_POS) <= 10.0f);
+}
+
 bool liftIsHigh() {
-  return (fabsf(lift_3508_avg_pos - LIFT_HIGH_POS) <= 40.0f);
+  return (fabsf(lift_3508_avg_pos - LIFT_HIGH_POS) <= 30.0f);
 }
 
 bool highModeActive() {

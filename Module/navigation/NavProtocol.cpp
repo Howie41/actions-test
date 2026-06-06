@@ -319,7 +319,6 @@ void NavControlTask(void *argument) {
         const bool reached = (dist_error < 10.0f);
         nav_control::arrived = reached;
         if (reached) {
-          high_cmd.request_lower = true;
           reportArrivalOnce();
         } else {
           nav_control::arrival_reported = false;
