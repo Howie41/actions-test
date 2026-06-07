@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <atomic>
 #include <array>
+#include <functional>
 #include <optional>
 
 class InfraredModule {
@@ -41,12 +42,11 @@ class InfraredModule {
          */
         static constexpr uint8_t HEADER = 0xAA;
         static constexpr uint8_t FOOTER = 0xBB;
-        static constexpr size_t RAW_LENGTH = 6; // 包括头尾的总长度
-        static constexpr size_t MAX_SEARCH_LENGTH = 3; // 最大搜索长度
+        static constexpr size_t RAW_LENGTH = 6;
         void UartPortRxCbHandler(const uint8_t *data, size_t len) {
             if (data == nullptr || len == 0) return;
-                if (len < MAX_SEARCH_LENGTH + RAW_LENGTH) return; // 不足以搜索一个完整包，丢弃
-                for (size_t i = 0; i <= MAX_SEARCH_LENGTH; ++i) {
+                if (len < RAW_LENGTH) return; // 不足以搜索一个完整包，丢弃
+                for (size_t i = 0; i <= len - RAW_LENGTH; ++i) {
                     if (
                         data[i] == HEADER && data[i + RAW_LENGTH - 1] == FOOTER // 检查帧头帧尾
                         && data[i + 1] == data[i + 4] // 两个编码一致
@@ -77,13 +77,13 @@ class InfraredModuleGroup {
     
     private:
         uint16_t max_uid_received_ = 0;
-        std::array<std::optional<InfraredModule>, MAX_MODULE_NUM> infrared_modules_;
+        std::array<std::optional<std::reference_wrapper<InfraredModule>>, MAX_MODULE_NUM> infrared_modules_;
 
         // TypedTopicPublisher<InfraredModule::infrared_msg_t> infrared_pub_{"infrared_msg"};
         // InfraredModule::infrared_msg_t infrared_msg_{};
 
     public:
-        bool addModule(const InfraredModule &module) {
+        bool addModule(InfraredModule &module) {
             for (auto &m : infrared_modules_) {
                 if (!m.has_value()) {
                     m.emplace(module);
@@ -98,7 +98,7 @@ class InfraredModuleGroup {
             std::optional<InfraredModule::infrared_msg_t> valid_latest_msg{std::nullopt};
             for (auto &m : infrared_modules_) {
                 if (m.has_value()) {
-                    InfraredModule::infrared_msg_t msg = m.value().getLatestMsg();
+                    InfraredModule::infrared_msg_t msg = m.value().get().getLatestMsg();
                     if (msg.uid > temp_max_uid) {
                         valid_latest_msg.emplace(msg);
                         temp_max_uid = msg.uid;

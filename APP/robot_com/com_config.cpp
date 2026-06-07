@@ -35,10 +35,12 @@
 #include "topic_pool.h"
 #include "usart.h"
 #include "motor_task.hpp"
+#include <atomic>
 #include <cstddef>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <sys/types.h>
 
 osThreadId_t CAN1_Send_TaskHandle;
 osThreadId_t CAN2_Send_TaskHandle;
@@ -88,6 +90,7 @@ C620Motor lift_3508_motor2(&fdcan1_bus, 0x204, 0, 0x200, 0);
 void onUart3RxCb(const uint8_t *data, size_t len, void *user);
 void onUart2RxCb(const uint8_t *data, size_t len, void *user);
 void onUart6RxCb(const uint8_t *data, size_t len, void *user);
+void onUart5RxCb(const uint8_t *data, size_t len, void *user);
 
 void onUsbRxCb(const uint8_t *data, size_t len, void *user);
 
@@ -112,6 +115,11 @@ DMA_BUFFER_ATTR static uint8_t uart6_tx_dma[64] = {0};
 UartPort uart6_port(&huart6, uart6_rx_dma, sizeof(uart6_rx_dma),
                             uart6_tx_dma, sizeof(uart6_tx_dma), onUart6RxCb, nullptr);
 
+DMA_BUFFER_ATTR static uint8_t uart5_rx_dma[UartPort::kPacketPayloadSize] = {0};
+DMA_BUFFER_ATTR static uint8_t uart5_tx_dma[64] = {0};
+UartPort uart5_port(&huart5, uart5_rx_dma, sizeof(uart5_rx_dma),
+                            uart5_tx_dma, sizeof(uart5_tx_dma), onUart5RxCb, nullptr);
+
 // USART10 日志
 DMA_BUFFER_ATTR static uint8_t uart10_rx_dma[64] = {0};
 DMA_BUFFER_ATTR static uint8_t uart10_tx_dma[Logger::BUFFER_LENGTH] = {0};
@@ -131,7 +139,10 @@ Hwt101Parser hwt101_parser;
 // 导航协议解析器
 NavProtocol nav_protocol;
 // 红外通信
-InfraredModule infrared_module(uart6_port);
+InfraredModule infrared_module_1(uart6_port);
+InfraredModule infrared_module_2(uart5_port);
+InfraredModuleGroup infrared_group;
+
 // 日志
 Logger logger(uart10_port);
 
@@ -216,6 +227,7 @@ uint8_t comServiceInit() {
   uart3_rx_semphore = osSemaphoreNew(1, 0, NULL);
   uart3_port.startRxDmaIdle();
   uart6_port.startRxDmaIdle();
+  uart5_port.startRxDmaIdle();
  
   // Xbox控制器初始化
   xbox_remote.init();
@@ -228,6 +240,10 @@ uint8_t comServiceInit() {
     // Motor速度规划系统注册电机
     motor_planning_system.registerMotor(arm3508_motor);
     motor_planning_system.registerMotor(arm2006_motor);
+
+    // 红外模块加入组
+    infrared_group.addModule(infrared_module_1);
+    infrared_group.addModule(infrared_module_2);
 
     return 0;
 }
@@ -252,7 +268,11 @@ void onUart3RxCb(const uint8_t *data, size_t len, void *user) {
 // 红外模块回调
 void onUart6RxCb(const uint8_t *data, size_t len, void *user) {
   (void)user;
-  infrared_module.UartPortRxCbHandler(data, len);
+  infrared_module_1.UartPortRxCbHandler(data, len);
+}
+void onUart5RxCb(const uint8_t *data, size_t len, void *user) {
+  (void)user;
+  infrared_module_2.UartPortRxCbHandler(data, len);
 }
 
 void onUsbRxCb(const uint8_t *data, size_t len, void *user) {
