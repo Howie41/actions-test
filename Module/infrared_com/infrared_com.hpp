@@ -20,15 +20,16 @@
 #include <cstddef>
 #include <cstdint>
 #include <atomic>
+#include <type_traits>
 #include <array>
 #include <functional>
 #include <optional>
-
+#include <initializer_list>
 class InfraredModule {
     public:
         typedef struct {
             uint16_t uid;
-            uint8_t data;
+            uint16_t data; // 为了内存对齐还有无锁原子性 事实上data只用到一个字节
         } infrared_msg_t;
 
         explicit InfraredModule(UartPort &uart_port) : uart_port_(uart_port) {}
@@ -53,61 +54,62 @@ class InfraredModule {
                     ) {
                         infrared_msg_t ir_msg{};
                         ir_msg.uid = static_cast<uint16_t>(data[i + 3]) << 8 | data[i + 2];
-                        ir_msg.data = data[i + 4];
-                        latest_msg_ = ir_msg;
+                        ir_msg.data = static_cast<uint16_t>(data[i + 4]);
+                        latest_msg_.store(ir_msg);
                         break; // 找到一个完整包后停止搜索
                     }
                 }
         }
 
-        infrared_msg_t getLatestMsg() { return latest_msg_; };
+        infrared_msg_t getLatestMsg() {
+            return latest_msg_.load();
+        };
 
     private:
         UartPort &uart_port_;
 
-        infrared_msg_t latest_msg_{};
+        std::atomic<infrared_msg_t> latest_msg_{};
+
+        // 如果这里报错了，那说明这个结构体读写时有锁，没触发就是无锁，可以接受
+        // 我编译的时候这里没有触发断言，说明编译器能做到无锁
+        static_assert(std::atomic<infrared_msg_t>::is_always_lock_free);
 };
 
 class InfraredModuleGroup {
     public:
         static constexpr size_t MAX_MODULE_NUM = 4;
 
-        InfraredModuleGroup() = default;
         ~InfraredModuleGroup() = default;
     
     private:
-        uint16_t max_uid_received_ = 0;
-        std::array<std::optional<std::reference_wrapper<InfraredModule>>, MAX_MODULE_NUM> infrared_modules_;
-
-        // TypedTopicPublisher<InfraredModule::infrared_msg_t> infrared_pub_{"infrared_msg"};
-        // InfraredModule::infrared_msg_t infrared_msg_{};
+        std::atomic<uint16_t> max_uid_received_{0};
+        std::array<InfraredModule*, MAX_MODULE_NUM> infrared_modules_{nullptr};
 
     public:
-        bool addModule(InfraredModule &module) {
-            for (auto &m : infrared_modules_) {
-                if (!m.has_value()) {
-                    m.emplace(module);
-                    return true;
-                }
+        InfraredModuleGroup(std::initializer_list<InfraredModule*> modules) {
+            infrared_modules_.fill(nullptr);
+            size_t i = 0;
+            for (auto m : modules) {
+                if (i >= MAX_MODULE_NUM) break;
+                infrared_modules_[i++] = m;
             }
-            return false;
         }
-
+        
         std::optional<InfraredModule::infrared_msg_t> tryGet() {
-            uint16_t temp_max_uid = max_uid_received_;
+            uint16_t temp_max_uid = max_uid_received_.load();
             std::optional<InfraredModule::infrared_msg_t> valid_latest_msg{std::nullopt};
-            for (auto &m : infrared_modules_) {
-                if (m.has_value()) {
-                    InfraredModule::infrared_msg_t msg = m.value().get().getLatestMsg();
+            for (auto m : infrared_modules_) {
+                if (m != nullptr) {
+                    InfraredModule::infrared_msg_t msg = m->getLatestMsg();
                     if (msg.uid > temp_max_uid) {
                         valid_latest_msg.emplace(msg);
                         temp_max_uid = msg.uid;
                     }
                 }
             }
-            max_uid_received_ = temp_max_uid;
+            max_uid_received_.store(temp_max_uid);
             return valid_latest_msg;
         }
 
-        uint16_t getMaxUidReceived() const { return max_uid_received_; }
+        uint16_t getMaxUidReceived() const { return max_uid_received_.load(); }
 };

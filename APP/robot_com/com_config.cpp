@@ -141,7 +141,7 @@ NavProtocol nav_protocol;
 // 红外通信
 InfraredModule infrared_module_1(uart6_port);
 InfraredModule infrared_module_2(uart5_port);
-InfraredModuleGroup infrared_group;
+InfraredModuleGroup infrared_group{&infrared_module_1, &infrared_module_2};
 
 // 日志
 Logger logger(uart10_port);
@@ -241,9 +241,6 @@ uint8_t comServiceInit() {
     motor_planning_system.registerMotor(arm3508_motor);
     motor_planning_system.registerMotor(arm2006_motor);
 
-    // 红外模块加入组
-    infrared_group.addModule(infrared_module_1);
-    infrared_group.addModule(infrared_module_2);
 
     return 0;
 }
