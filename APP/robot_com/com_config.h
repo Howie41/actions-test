@@ -36,6 +36,7 @@ void can2SendTask(void *argument);
 void can3SendTask(void *argument);
 void uart2RxProcessTask(void *argument);
 void uart3RxProcessTask(void *argument);
+void laserMeasureTask(void *argument);
 void usbCdcProcessTask(void *argument);
 void PcComTask(void *argument);
 
@@ -45,6 +46,9 @@ void PcComTask(void *argument);
 
 #ifdef __cplusplus
 
+#include "LaserMeasure.hpp"
 #include "infrared_com.hpp"
 extern InfraredModule infrared_module;
+extern LaserMeasure laser1;
+extern LaserMeasure laser2;
 #endif

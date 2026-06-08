@@ -45,6 +45,7 @@ osThreadId_t CAN2_Send_TaskHandle;
 osThreadId_t CAN3_Send_TaskHandle;
 osThreadId_t uart2ProcessTaskHandle;
 osThreadId_t uart3ProcessTaskHandle;
+osThreadId_t laserMeasureTaskHandle;
 osThreadId_t usbcdcProcessTaskHandle;
 osThreadId_t PcComTaskHandle;
 
@@ -88,13 +89,31 @@ C620Motor lift_3508_motor2(&fdcan1_bus, 0x204, 0, 0x200, 0);
 void onUart3RxCb(const uint8_t *data, size_t len, void *user);
 void onUart2RxCb(const uint8_t *data, size_t len, void *user);
 void onUart6RxCb(const uint8_t *data, size_t len, void *user);
+void onUart7RxCb(const uint8_t *data, size_t len, void *user);
+void onUart8RxCb(const uint8_t *data, size_t len, void *user);
 
 void onUsbRxCb(const uint8_t *data, size_t len, void *user);
 
+extern UART_HandleTypeDef huart7;
+extern UART_HandleTypeDef huart8;
 extern UART_HandleTypeDef huart3;
 extern UART_HandleTypeDef huart2;
 extern UART_HandleTypeDef huart6;
 extern DMA_HandleTypeDef hdma_usart6_rx;
+
+DMA_BUFFER_ATTR static uint8_t uart7_rx_dma[64];
+DMA_BUFFER_ATTR static uint8_t uart7_tx_dma[16];
+UartPort uart7_port(&huart7, uart7_rx_dma, sizeof(uart7_rx_dma),
+                    uart7_tx_dma, sizeof(uart7_tx_dma), onUart7RxCb,
+                    nullptr);
+osSemaphoreId_t uart7_rx_semphore = NULL;
+
+DMA_BUFFER_ATTR static uint8_t uart8_rx_dma[64];
+DMA_BUFFER_ATTR static uint8_t uart8_tx_dma[16];
+UartPort uart8_port(&huart8, uart8_rx_dma, sizeof(uart8_rx_dma),
+                    uart8_tx_dma, sizeof(uart8_tx_dma), onUart8RxCb,
+                    nullptr);
+osSemaphoreId_t uart8_rx_semphore = NULL;
 
 DMA_BUFFER_ATTR static uint8_t uart3_rx_dma[64];
 DMA_BUFFER_ATTR static uint8_t uart3_tx_dma[64];
@@ -132,6 +151,8 @@ Hwt101Parser hwt101_parser;
 NavProtocol nav_protocol;
 // 红外通信
 InfraredModule infrared_module(uart6_port);
+LaserMeasure laser1(uart7_port, 0x50);
+LaserMeasure laser2(uart8_port, 0x50);
 // 日志
 Logger logger(uart10_port);
 
@@ -211,7 +232,13 @@ uint8_t comServiceInit() {
   fdcan1_bus.registerDevice(&lift_3508_motor2);
 
   // 串口外设
-   uart2_rx_semphore = osSemaphoreNew(1, 0, NULL);
+  uart7_rx_semphore = osSemaphoreNew(1, 0, NULL);
+  uart7_port.startRxDmaIdle();
+  laser1.init();
+  uart8_rx_semphore = osSemaphoreNew(1, 0, NULL);
+  uart8_port.startRxDmaIdle();
+  laser2.init();
+  uart2_rx_semphore = osSemaphoreNew(1, 0, NULL);
   uart2_port.startRxDmaIdle();
   uart3_rx_semphore = osSemaphoreNew(1, 0, NULL);
   uart3_port.startRxDmaIdle();
@@ -246,6 +273,20 @@ void onUart3RxCb(const uint8_t *data, size_t len, void *user) {
   (void)user;
   if (data != nullptr && len > 0 && uart3_rx_semphore != NULL) {
     (void)osSemaphoreRelease(uart3_rx_semphore);
+  }
+}
+
+void onUart7RxCb(const uint8_t *data, size_t len, void *user) {
+  (void)user;
+  if (data != nullptr && len > 0 && uart7_rx_semphore != NULL) {
+    (void)osSemaphoreRelease(uart7_rx_semphore);
+  }
+}
+
+void onUart8RxCb(const uint8_t *data, size_t len, void *user) {
+  (void)user;
+  if (data != nullptr && len > 0 && uart8_rx_semphore != NULL) {
+    (void)osSemaphoreRelease(uart8_rx_semphore);
   }
 }
 
@@ -398,6 +439,45 @@ void uart3RxProcessTask(void *argument) {
         }
       }
     }
+  }
+}
+
+void laserMeasureTask(void *argument) {
+  (void)argument;
+
+  uint32_t last_laser1_tick = osKernelGetTickCount();
+  uint32_t last_laser2_tick = last_laser1_tick + 50U;
+
+  for (;;) {
+    const uint32_t now_tick = osKernelGetTickCount();
+
+    if ((now_tick - last_laser1_tick) >= 100U) {
+      (void)laser1.triggerSingleMeasure();
+      last_laser1_tick = now_tick;
+    }
+
+    if ((now_tick - last_laser2_tick) >= 100U) {
+      (void)laser2.triggerSingleMeasure();
+      last_laser2_tick = now_tick;
+    }
+
+    if (uart7_rx_semphore != NULL &&
+        osSemaphoreAcquire(uart7_rx_semphore, 0) == osOK) {
+      UartPort::Packet packet{};
+      while (uart7_port.Read(packet)) {
+        (void)laser1.processFrame(packet.data, packet.len);
+      }
+    }
+
+    if (uart8_rx_semphore != NULL &&
+        osSemaphoreAcquire(uart8_rx_semphore, 0) == osOK) {
+      UartPort::Packet packet{};
+      while (uart8_port.Read(packet)) {
+        (void)laser2.processFrame(packet.data, packet.len);
+      }
+    }
+
+    osDelay(5);
   }
 }
 

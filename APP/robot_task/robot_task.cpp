@@ -38,6 +38,7 @@ extern osThreadId_t CAN2_Send_TaskHandle;
 extern osThreadId_t CAN3_Send_TaskHandle;
 extern osThreadId_t uart2ProcessTaskHandle;
 extern osThreadId_t uart3ProcessTaskHandle;
+extern osThreadId_t laserMeasureTaskHandle;
 extern osThreadId_t Debug_TaskHandle;
 extern osThreadId_t Motor_TaskHandle;
 extern osThreadId_t ChassisTaskHandle;
@@ -146,6 +147,14 @@ void osTaskInit(void) {
   };
   uart3ProcessTaskHandle =
       osThreadNew(uart3RxProcessTask, NULL, &Uart3ProcessTaskHandle_attributes);
+
+  const osThreadAttr_t LaserMeasureTaskHandle_attributes = {
+      .name = "LaserMeasure_TaskHandle",
+      .stack_size = 512 * 4,
+      .priority = (osPriority_t)osPriorityNormal1,
+  };
+  laserMeasureTaskHandle =
+      osThreadNew(laserMeasureTask, NULL, &LaserMeasureTaskHandle_attributes);
 
  /* const osThreadAttr_t UsbcdcProcessTaskHandle_attributes = {
       .name = "UsbcdcProcess_TaskHandle",
