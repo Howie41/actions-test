@@ -30,6 +30,7 @@
 #include "tail_claw_task.hpp"
 #include "motor_task.hpp"
 #include "arm_task.hpp"
+#include "watchdog_task.h"
 
 /* module层接口头文件 */
 
@@ -49,6 +50,7 @@ extern osThreadId_t tail_claw_TaskHandle;
 extern osThreadId_t NavControlTaskHandle;
 extern osThreadId_t LiftTaskHandle;
 extern osThreadId_t PcComTaskHandle;
+extern osThreadId_t Watchdog_TaskHandle;
 
 
 void osTaskInit(void) {
@@ -160,6 +162,18 @@ void osTaskInit(void) {
   uart3ProcessTaskHandle =
       osThreadNew(uart3RxProcessTask, NULL, &Uart3ProcessTaskHandle_attributes);
 
+
+
+
+  const osThreadAttr_t WatchdogTaskHandle_attributes = {
+      .name = "Watchdog_TaskHandle",
+      .stack_size = 128 * 4,
+      .priority = (osPriority_t)osPriorityNormal,
+  };
+  Watchdog_TaskHandle =
+      osThreadNew(watchdogTask, NULL, &WatchdogTaskHandle_attributes);
+
+
  /* const osThreadAttr_t UsbcdcProcessTaskHandle_attributes = {
       .name = "UsbcdcProcess_TaskHandle",
       .stack_size = 512 * 4,
@@ -168,6 +182,8 @@ void osTaskInit(void) {
   usbcdcProcessTaskHandle =
       osThreadNew(usbCdcProcessTask, NULL, &UsbcdcProcessTaskHandle_attributes);
 */
+
+
   const osThreadAttr_t tail_claw_TaskHandle_attributes = {
       .name = "tail_claw_TaskHandle",
       .stack_size = 128 * 4,
