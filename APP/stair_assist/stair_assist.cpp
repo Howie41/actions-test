@@ -21,6 +21,11 @@ constexpr int32_t kLaser1DescendLowerMinMm = 1650;
 constexpr int32_t kLaser1DescendLowerMaxMm = 1700;
 constexpr int32_t kLaser1EdgeMinMm = 800;
 
+constexpr int32_t kLaser2ClimbHighMinMm = 210;
+constexpr int32_t kLaser2ClimbHighMaxMm = 240;
+constexpr int32_t kLaser2DescendLowerMinMm = 300;
+constexpr int32_t kLaser2DescendLowerMaxMm = 400;
+
 // Laser2 is mounted on the front leg and uses the user's current estimates:
 // ground ~600 mm, high suspended ~1000 mm, step contact ~300 mm.
 constexpr int32_t kLaser2StepMinMm = 0;
@@ -188,6 +193,14 @@ void updateLaser2Judge(uint32_t now_tick) {
   const bool ground_match = g_laser2_state == StairAssistLaser2State::GroundNormal;
   const bool high_match = g_laser2_state == StairAssistLaser2State::HighSuspended;
   const bool step_match = g_laser2_state == StairAssistLaser2State::StepContact;
+  const bool climb_high_match =
+      inRangeInclusive(result.distance_mm, kLaser2ClimbHighMinMm,
+                       kLaser2ClimbHighMaxMm) &&
+      g_debug.laser2_fresh;
+  const bool descend_lower_match =
+      inRangeInclusive(result.distance_mm, kLaser2DescendLowerMinMm,
+                       kLaser2DescendLowerMaxMm) &&
+      g_debug.laser2_fresh;
 
   if (ground_match) {
     saturatingIncrement(g_debug.laser2_ground_count);
@@ -203,6 +216,16 @@ void updateLaser2Judge(uint32_t now_tick) {
     saturatingIncrement(g_debug.laser2_step_count);
   }
   clearIfNotMatch(g_debug.laser2_step_count, step_match);
+
+  if (climb_high_match) {
+    saturatingIncrement(g_debug.laser2_climb_high_count);
+  }
+  clearIfNotMatch(g_debug.laser2_climb_high_count, climb_high_match);
+
+  if (descend_lower_match) {
+    saturatingIncrement(g_debug.laser2_descend_lower_count);
+  }
+  clearIfNotMatch(g_debug.laser2_descend_lower_count, descend_lower_match);
 }
 
 void updateDecisionFlags() {
@@ -221,7 +244,8 @@ void updateDecisionFlags() {
 
   g_debug.suggest_climb_up =
       (g_mode == StairAssistMode::ClimbUp) &&
-      (g_debug.laser1_near_count >= kStableFrames);
+      ((g_debug.laser1_near_count >= kStableFrames) ||
+       (g_debug.laser2_climb_high_count >= kStableFrames));
   g_debug.suggest_descend_high =
       (g_mode == StairAssistMode::Descend) &&
       (g_debug.laser1_descend_ready_count >= kStableFrames);
@@ -246,7 +270,8 @@ void updateDecisionFlags() {
   g_debug.should_lower_after_descend =
       g_auto_lower_enabled &&
       (g_mode == StairAssistMode::Descend) &&
-      (g_debug.laser1_descend_lower_count >= kStableFrames);
+      ((g_debug.laser1_descend_lower_count >= kStableFrames) ||
+       (g_debug.laser2_descend_lower_count >= kStableFrames));
 }
 
 }  // namespace
@@ -296,6 +321,8 @@ void stairAssistSetAutoLowerEnabled(bool enabled) {
   g_debug.laser1_auto_lower_count = 0;
   g_debug.laser1_descend_ready_count = 0;
   g_debug.laser1_descend_lower_count = 0;
+  g_debug.laser2_climb_high_count = 0;
+  g_debug.laser2_descend_lower_count = 0;
   g_debug.should_lower_after_climb = false;
   g_debug.should_lower_after_descend = false;
 }
@@ -321,6 +348,8 @@ void stairAssistResetProgress() {
   g_debug.laser1_auto_lower_count = 0;
   g_debug.laser1_descend_ready_count = 0;
   g_debug.laser1_descend_lower_count = 0;
+  g_debug.laser2_climb_high_count = 0;
+  g_debug.laser2_descend_lower_count = 0;
   g_debug.should_lower_after_climb = false;
   g_debug.should_lower_after_descend = false;
 }

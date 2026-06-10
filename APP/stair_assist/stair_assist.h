@@ -42,6 +42,8 @@ struct StairAssistDebug {
   uint8_t laser1_auto_lower_count{0};
   uint8_t laser1_descend_ready_count{0};
   uint8_t laser1_descend_lower_count{0};
+  uint8_t laser2_climb_high_count{0};
+  uint8_t laser2_descend_lower_count{0};
   uint8_t laser2_ground_count{0};
   uint8_t laser2_high_count{0};
   uint8_t laser2_step_count{0};
