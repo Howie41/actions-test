@@ -50,6 +50,12 @@ extern osThreadId_t PcComTaskHandle;
 
 #include "memory_map.h"
 
+// 添加任务分为两步：
+// 第一步先按照格式写 DECLARE_STATIC_TASK(任务名, 任务栈大小，任务优先级) 来声明任务的控制块和栈
+// 注意任务名不用双引号
+// 第二步在 osTaskInit 函数里调用 osThreadNew 来创建任务，照着其他格式写就行了
+
+
 /**
  * 静态创建任务栈和控制块，分配到 RAM_D1 上
  * @param sym 任务名，直接写，不是字符串，不需要写引号
