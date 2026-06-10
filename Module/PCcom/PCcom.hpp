@@ -13,7 +13,7 @@ enum class PcCmd : uint16_t {
   tail_claw_msg = 0x0001,
   tail_claw_msg_flase = 0x0002,
   tail_claw_msg_success = 0x0003,
-// ---- 上位机→下位机: 导航指令 (0x01xx) ----
+
   nav_position = 0x0101, // 上位机上报当前位置
   nav_target = 0x0102,// 上位机下发目标点
   nav_climb_up = 0x0103, // 上台阶指令
@@ -34,7 +34,6 @@ enum class PcCmd : uint16_t {
   nav_stair_cd_start = 0x0209, // 去中心驱动开始
   nav_stair_cd_done = 0x020A, // 去中心驱动到达
 
-  qr_code_parsed = 0xAA00,// 上位机解析到二维码指令
 };
 class PcCom {
 public:
@@ -68,7 +67,4 @@ private:
     // 导航事件订阅: lift_task / NavProtocol 发布事件 → ProcessTx 发送到上位机
     // 队列深度 4，足够缓冲连续事件
   TypedTopicSubscriber<pc_nav_event_t> pc_nav_event_sub_{"pc_nav_event_pub", 4};
-  
-    // 二维码解析
-  TypedTopicPublisher<pub_qr_code_parsed> pc_qr_code_pub_{"qr_code_parsed"};
 };
