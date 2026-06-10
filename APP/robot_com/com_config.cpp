@@ -460,17 +460,17 @@ void laserMeasureTask(void *argument) {
   (void)argument;
 
   uint32_t laser1_tick = osKernelGetTickCount();
-  uint32_t laser2_tick = laser1_tick + 50U;
+  uint32_t laser2_tick = laser1_tick + 25U;
 
   for (;;) {
     const uint32_t now_tick = osKernelGetTickCount();
 
-    if ((now_tick - laser1_tick) >= 100U) {
+    if ((now_tick - laser1_tick) >= 50U) {
       (void)laser1.triggerSingleMeasure();
       laser1_tick = now_tick;
     }
 
-    if ((now_tick - laser2_tick) >= 100U) {
+    if ((now_tick - laser2_tick) >= 50U) {
       (void)laser2.triggerSingleMeasure();
       laser2_tick = now_tick;
     }

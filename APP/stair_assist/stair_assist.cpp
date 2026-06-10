@@ -5,7 +5,7 @@
 
 namespace {
 
-constexpr uint8_t kStableFrames = 3;
+constexpr uint8_t kStableFrames = 1;
 constexpr uint32_t kLaserDataTimeoutMs = 500;
 
 // Laser1 is mounted toward the stair front. These are placeholders and must be
@@ -13,8 +13,12 @@ constexpr uint32_t kLaserDataTimeoutMs = 500;
 // NearStair is the main "ready to climb up" band.
 // EdgeOpen is only an auxiliary "arrived at stair edge" band for descend
 // workflows where there is still a front stair face to scan.
-constexpr int32_t kLaser1NearMinMm = 50;
-constexpr int32_t kLaser1NearMaxMm = 350;
+constexpr int32_t kLaser1NearMinMm = 430;
+constexpr int32_t kLaser1NearMaxMm = 500;
+constexpr int32_t kLaser1AutoLowerMinMm = 950;
+constexpr int32_t kLaser1AutoLowerMaxMm = 1120;
+constexpr int32_t kLaser1DescendLowerMinMm = 1650;
+constexpr int32_t kLaser1DescendLowerMaxMm = 1700;
 constexpr int32_t kLaser1EdgeMinMm = 800;
 
 // Laser2 is mounted on the front leg and uses the user's current estimates:
@@ -36,8 +40,10 @@ SensorFrameTrack g_laser1_track{};
 SensorFrameTrack g_laser2_track{};
 StairAssistLaser1State g_laser1_state{StairAssistLaser1State::Invalid};
 StairAssistLaser2State g_laser2_state{StairAssistLaser2State::Invalid};
+StairAssistMode g_mode{StairAssistMode::ClimbUp};
 
 bool g_enabled{false};
+bool g_auto_lower_enabled{false};
 bool g_saw_laser2_high_for_climb{false};
 bool g_saw_laser2_close_for_descend{false};
 
@@ -133,6 +139,14 @@ void updateLaser1Judge(uint32_t now_tick) {
 
   const bool near_match = g_laser1_state == StairAssistLaser1State::NearStair;
   const bool edge_match = g_laser1_state == StairAssistLaser1State::EdgeOpen;
+  const bool auto_lower_match =
+      inRangeInclusive(result.distance_mm, kLaser1AutoLowerMinMm,
+                       kLaser1AutoLowerMaxMm) &&
+      g_debug.laser1_fresh;
+  const bool descend_lower_match =
+      inRangeInclusive(result.distance_mm, kLaser1DescendLowerMinMm,
+                       kLaser1DescendLowerMaxMm) &&
+      g_debug.laser1_fresh;
 
   if (near_match) {
     saturatingIncrement(g_debug.laser1_near_count);
@@ -143,6 +157,21 @@ void updateLaser1Judge(uint32_t now_tick) {
     saturatingIncrement(g_debug.laser1_edge_count);
   }
   clearIfNotMatch(g_debug.laser1_edge_count, edge_match);
+
+  if (auto_lower_match) {
+    saturatingIncrement(g_debug.laser1_auto_lower_count);
+  }
+  clearIfNotMatch(g_debug.laser1_auto_lower_count, auto_lower_match);
+
+  if (auto_lower_match) {
+    saturatingIncrement(g_debug.laser1_descend_ready_count);
+  }
+  clearIfNotMatch(g_debug.laser1_descend_ready_count, auto_lower_match);
+
+  if (descend_lower_match) {
+    saturatingIncrement(g_debug.laser1_descend_lower_count);
+  }
+  clearIfNotMatch(g_debug.laser1_descend_lower_count, descend_lower_match);
 }
 
 void updateLaser2Judge(uint32_t now_tick) {
@@ -178,19 +207,30 @@ void updateLaser2Judge(uint32_t now_tick) {
 
 void updateDecisionFlags() {
   g_debug.enabled = g_enabled;
+  g_debug.assist_mode = static_cast<uint8_t>(g_mode);
 
   if (!g_enabled) {
     stairAssistResetProgress();
     g_debug.suggest_climb_up = false;
+    g_debug.suggest_descend_high = false;
     g_debug.suggest_descend_edge_ready = false;
     g_debug.should_lower_after_climb = false;
     g_debug.should_lower_after_descend = false;
     return;
   }
 
-  g_debug.suggest_climb_up = g_debug.laser1_near_count >= kStableFrames;
+  g_debug.suggest_climb_up =
+      (g_mode == StairAssistMode::ClimbUp) &&
+      (g_debug.laser1_near_count >= kStableFrames);
+  g_debug.suggest_descend_high =
+      (g_mode == StairAssistMode::Descend) &&
+      (g_debug.laser1_descend_ready_count >= kStableFrames);
   g_debug.suggest_descend_edge_ready =
       g_debug.laser1_edge_count >= kStableFrames;
+  g_debug.should_lower_after_climb =
+      g_auto_lower_enabled &&
+      (g_mode == StairAssistMode::ClimbUp) &&
+      (g_debug.laser1_auto_lower_count >= kStableFrames);
 
   if (g_debug.laser2_high_count >= kStableFrames) {
     g_saw_laser2_high_for_climb = true;
@@ -203,19 +243,18 @@ void updateDecisionFlags() {
   g_debug.saw_laser2_high_for_climb = g_saw_laser2_high_for_climb;
   g_debug.saw_laser2_close_for_descend = g_saw_laser2_close_for_descend;
 
-  g_debug.should_lower_after_climb =
-      g_saw_laser2_high_for_climb &&
-      (g_debug.laser2_step_count >= kStableFrames);
-
   g_debug.should_lower_after_descend =
-      g_saw_laser2_close_for_descend &&
-      (g_debug.laser2_high_count >= kStableFrames);
+      g_auto_lower_enabled &&
+      (g_mode == StairAssistMode::Descend) &&
+      (g_debug.laser1_descend_lower_count >= kStableFrames);
 }
 
 }  // namespace
 
 void stairAssistInit() {
   g_enabled = false;
+  g_auto_lower_enabled = false;
+  g_mode = StairAssistMode::ClimbUp;
   g_saw_laser2_high_for_climb = false;
   g_saw_laser2_close_for_descend = false;
   g_laser1_track = {};
@@ -238,6 +277,33 @@ bool stairAssistEnabled() {
   return g_enabled;
 }
 
+void stairAssistSetMode(StairAssistMode mode) {
+  if (g_mode == mode) {
+    return;
+  }
+
+  g_mode = mode;
+  stairAssistResetProgress();
+}
+
+StairAssistMode stairAssistMode() {
+  return g_mode;
+}
+
+void stairAssistSetAutoLowerEnabled(bool enabled) {
+  g_auto_lower_enabled = enabled;
+  g_debug.auto_lower_enabled = enabled;
+  g_debug.laser1_auto_lower_count = 0;
+  g_debug.laser1_descend_ready_count = 0;
+  g_debug.laser1_descend_lower_count = 0;
+  g_debug.should_lower_after_climb = false;
+  g_debug.should_lower_after_descend = false;
+}
+
+bool stairAssistAutoLowerEnabled() {
+  return g_auto_lower_enabled;
+}
+
 void stairAssistUpdate() {
   const uint32_t now_tick = osKernelGetTickCount();
   updateLaser1Judge(now_tick);
@@ -250,6 +316,11 @@ void stairAssistResetProgress() {
   g_saw_laser2_close_for_descend = false;
   g_debug.saw_laser2_high_for_climb = false;
   g_debug.saw_laser2_close_for_descend = false;
+  g_debug.suggest_climb_up = false;
+  g_debug.suggest_descend_high = false;
+  g_debug.laser1_auto_lower_count = 0;
+  g_debug.laser1_descend_ready_count = 0;
+  g_debug.laser1_descend_lower_count = 0;
   g_debug.should_lower_after_climb = false;
   g_debug.should_lower_after_descend = false;
 }
@@ -264,6 +335,10 @@ StairAssistLaser2State stairAssistLaser2State() {
 
 bool stairAssistSuggestClimbUp() {
   return g_debug.suggest_climb_up;
+}
+
+bool stairAssistSuggestDescendHighMode() {
+  return g_debug.suggest_descend_high;
 }
 
 bool stairAssistSuggestDescendEdgeReady() {
