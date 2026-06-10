@@ -19,15 +19,13 @@
 #include "topic_pool.h"
 #include "topics.hpp"
 #include "gpio.h"
-
 #include "task.h"
-
 #include "logger.hpp"
 #include "com_config.h"
 #include "pid_controller.h"
 #include "motor_task.hpp"
 #include "Motor.hpp"
-
+#include "arm_task.hpp"
 #include <cmath>
 #include <cstdint>
 #include <cstring>
