@@ -25,11 +25,6 @@ enum WpID : uint8_t {
   WP_MF_Entrance = 4,
 };
 
-constexpr Wp LIST[128] = {
-    {0, 0, 0},  
-    
-};
-
 
 }  // namespace field
  
