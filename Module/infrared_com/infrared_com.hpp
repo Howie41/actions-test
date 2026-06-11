@@ -44,10 +44,12 @@ class InfraredModule {
         static constexpr uint8_t HEADER = 0xAA;
         static constexpr uint8_t FOOTER = 0xBB;
         static constexpr size_t RAW_LENGTH = 6;
+        static constexpr size_t MAX_SEARCH_TIMES = 3;
         void UartPortRxCbHandler(const uint8_t *data, size_t len) {
             if (data == nullptr || len == 0) return;
                 if (len < RAW_LENGTH) return; // 不足以搜索一个完整包，丢弃
-                for (size_t i = 0; i <= len - RAW_LENGTH; ++i) {
+                const size_t search_limit = (len - RAW_LENGTH < MAX_SEARCH_TIMES) ? (len - RAW_LENGTH) : MAX_SEARCH_TIMES;
+                for (size_t i = 0; i <= search_limit; ++i) {
                     if (
                         data[i] == HEADER && data[i + RAW_LENGTH - 1] == FOOTER // 检查帧头帧尾
                         && data[i + 1] == data[i + 4] // 两个编码一致
