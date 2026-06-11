@@ -47,4 +47,5 @@ void PcComTask(void *argument);
 
 #include "infrared_com.hpp"
 extern InfraredModule infrared_module;
+extern InfraredModuleGroup infrared_group;
 #endif

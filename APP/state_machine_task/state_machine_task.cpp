@@ -10,10 +10,12 @@
 #include <cstdint>
 
 #include "state_machine_task.h"
+#include "com_config.h"
 #include "NavProtocol.hpp"
 #include "infrared_com.hpp"
 #include "topic_pool.h"
 #include "topics.hpp"
+
 osThreadId_t StateMachineTaskHandle;
 
 static std::atomic<RobotState> current_state{RobotState::begin};
@@ -87,6 +89,10 @@ uint8_t get_cmd_from_r1() {
     pub_qr_code_parsed qr_code_msg{.data = 0x00};
 
     // 先取红外（作为默认），再用二维码覆盖
+    auto ir_result = infrared_group.tryGet();
+    if (ir_result.has_value()) {
+        cmd = static_cast<uint8_t>(ir_result.value().data);
+    }
     if (qr_code_sub.TryGet(&qr_code_msg)) {
         cmd = qr_code_msg.data;
     }
