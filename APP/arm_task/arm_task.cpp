@@ -145,26 +145,26 @@ void armTask(void *argument) {
             now_t = DWT_GetTimeline_s() - time_rec;
             if (arm.kfs_num_ == 0 || arm.kfs_num_ == 1) {
                 if (now_t >= 0.5f && last_t < 0.5f) { arm.fetch_proceed(-1, 1 ); }
-                else if (now_t >= 1.5f && last_t < 1.5f) { arm.fetch_proceed(-1, 2); }
-                else if (now_t >= 2.5f && last_t < 2.5f) { arm.fetch_proceed(-1, 3); }
-                else if (now_t >= 3.5f && last_t < 3.5f) { arm.fetch_proceed(-1, 4); }
-                else if (now_t >= 4.5f && last_t < 4.5f) { arm.fetch_proceed(-1, 5); }
-                else if (now_t >= 5.5f && last_t < 5.5f) { arm.fetch_proceed(-1, 6); }
-                else if (now_t >= 6.5f && last_t < 6.5f) { arm.fetch_proceed(-1, 7); }
-                else if (now_t >= 7.5f && last_t < 7.5f) { arm.fetch_proceed(-1, 8); }
-                else if (now_t >= 8.5f && last_t < 8.5f) { arm.fetch_proceed(-1, 9); }
-                else if (now_t >= 9.5f && last_t < 9.5f) { arm.fetch_proceed(-1, 10); }
-                else if (now_t >= 10.5f && last_t < 10.5f) { arm.fetch_proceed(-1, 11); }
-                else if (now_t >= 11.5f && last_t < 11.5f) { arm.fetch_proceed(-1, 12); }
-                else if (now_t >= 12.5f && last_t < 12.5f) { arm.is_fecthing_step_L_ = false; arm.addKFS(); }
+                else if (now_t >= 2.5f && last_t < 2.5f) { arm.fetch_proceed(-1, 2); }
+                else if (now_t >= 3.5f && last_t < 3.5f) { arm.fetch_proceed(-1, 3); }
+                else if (now_t >= 4.5f && last_t < 4.5f) { arm.fetch_proceed(-1, 4); }
+                else if (now_t >= 5.5f && last_t < 5.5f) { arm.fetch_proceed(-1, 5); }
+                else if (now_t >= 6.5f && last_t < 6.5f) { arm.fetch_proceed(-1, 6); }
+                else if (now_t >= 7.5f && last_t < 7.5f) { arm.fetch_proceed(-1, 7); }
+                else if (now_t >= 8.5f && last_t < 8.5f) { arm.fetch_proceed(-1, 8); }
+                else if (now_t >= 9.5f && last_t < 9.5f) { arm.fetch_proceed(-1, 9); }
+                else if (now_t >= 10.5f && last_t < 10.5f) { arm.fetch_proceed(-1, 10); }
+                else if (now_t >= 11.5f && last_t < 11.5f) { arm.fetch_proceed(-1, 11); }
+                else if (now_t >= 12.5f && last_t < 12.5f) { arm.fetch_proceed(-1, 12); }
+                else if (now_t >= 13.5f && last_t < 13.5f) { arm.is_fecthing_step_L_ = false; arm.addKFS(); }
             } else if (arm.kfs_num_ == 2) {
                 if (now_t >= 0.5f && last_t < 0.5f) { arm.fetch_proceed(-1, 1 ); }
-                else if (now_t >= 1.5f && last_t < 1.5f) { arm.fetch_proceed(-1, 2); }
-                else if (now_t >= 2.5f && last_t < 2.5f) { arm.fetch_proceed(-1, 3); }
-                else if (now_t >= 3.5f && last_t < 3.5f) { arm.fetch_proceed(-1, 4); }
-                else if (now_t >= 4.5f && last_t < 4.5f) { arm.fetch_proceed(-1, 5); }
-                else if (now_t >= 5.5f && last_t < 5.5f) { arm.fetch_proceed(-1, 6); }
-                else if (now_t >= 6.5f && last_t < 6.5f) { arm.is_fecthing_step_L_ = false; arm.addKFS(); }
+                else if (now_t >= 2.5f && last_t < 2.5f) { arm.fetch_proceed(-1, 2); }
+                else if (now_t >= 3.5f && last_t < 3.5f) { arm.fetch_proceed(-1, 3); }
+                else if (now_t >= 4.5f && last_t < 4.5f) { arm.fetch_proceed(-1, 4); }
+                else if (now_t >= 5.5f && last_t < 5.5f) { arm.fetch_proceed(-1, 5); }
+                else if (now_t >= 6.5f && last_t < 6.5f) { arm.fetch_proceed(-1, 6); }
+                else if (now_t >= 7.5f && last_t < 7.5f) { arm.is_fecthing_step_L_ = false; arm.addKFS(); }
             }
             last_t = now_t;
         } else if (arm.is_placing_kfs_L_) {
