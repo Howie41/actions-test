@@ -48,7 +48,7 @@ void debugTask(void *argument) {
   // osThreadExit();
   static uint8_t test[50] = {0};
   for (;;) {
-    (void)test;
+    test[0] = test[0];
     osDelay(100);
   }
 }
