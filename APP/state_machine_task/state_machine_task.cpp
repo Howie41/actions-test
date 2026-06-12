@@ -13,6 +13,7 @@
 #include "state_machine_task.h"
 #include "NavProtocol.hpp"
 #include "infrared_com.hpp"
+#include "stm32h7xx_hal.h"
 #include "tail_claw_task.hpp"
 #include "topic_pool.h"
 #include "topics.hpp"
@@ -23,7 +24,12 @@ static std::atomic<RobotState> current_state{RobotState::begin};
 
 TypedTopicSubscriber<pub_infrared_msg> infrared_sub(InfraredModule::INFRARED_MSG_TOPIC, 1);
 TypedTopicSubscriber<pub_qr_code_parsed> qr_code_sub("qr_code_parsed", 1);
-
+// 自动状态机能给尾爪任务发命令，而不是直接改尾爪内部变量。
+static TypedTopicPublisher<pub_tail_claw_cmd> tail_claw_cmd_pub("tail_claw_cmd");
+//下位机发信息给上位机，告诉它当前的状态，或者说事件发生了，或者说需要它做什么
+static TypedTopicPublisher<tail_claw_msg>tail_claw_weapon_event_pub("tail_claw_weapon_event");
+//static TypedTopicPublisher<tail_claw_msg>tail_claw_rod_event_pub("tail_claw_rod_event");
+tail_claw_msg msg{};
 extern PID_t tail_claw_roll_pos_pid;
 extern PID_t tail_claw_roll_speed_pid;
 extern bool weapon_claw_open;                 //武器气泵的夹紧，ture 为吸，false为放
@@ -31,6 +37,43 @@ extern uint8_t weapon_match_state_;
 extern float tail_claw_roll_target_pos;
 extern C620Motor tail_claw_roll_motor;
 
+static bool state_machine_view_last = false;
+
+static bool consume_state_machine_view(bool current_state) {
+    const bool rising_edge = current_state && !state_machine_view_last;
+    state_machine_view_last = current_state;
+    return rising_edge;
+}
+
+//切换尾爪模式
+static void tail_claw_setMode(TailClawMode mode) {
+    pub_tail_claw_cmd cmd{};
+    cmd.mode = mode;
+    tail_claw_cmd_pub.Publish(cmd);
+}
+//设置尾爪翻转目标位置，单位为度
+static void tail_claw_setRollTarget(float deg) {
+    pub_tail_claw_cmd cmd{};
+    cmd.mode = TailClawMode::Hold;
+    cmd.set_roll_target = true;
+    cmd.roll_target_deg = deg;
+    tail_claw_cmd_pub.Publish(cmd);
+}
+//设置武器夹爪状态，true为夹紧，false为放松
+static void tail_claw_setWeaponClaw(bool close) {
+    pub_tail_claw_cmd cmd{};
+    cmd.mode = TailClawMode::Hold;
+    cmd.set_weapon_claw = true;
+    cmd.weapon_claw_close = close;
+    tail_claw_cmd_pub.Publish(cmd);
+}
+
+static void tail_claw_setAirPump(bool on) {
+    pub_tail_claw_cmd cmd{};
+    cmd.set_air_pump = true;
+    cmd.air_pump_on = on;
+    tail_claw_cmd_pub.Publish(cmd);
+}
 //osSemaphoreId_t tail_claw_task_start_sem=nullptr;     //用于状态机通知tail_claw_task开始对准武器头的信号量
 /**
  * @brief 等待直到条件满足
@@ -68,7 +111,7 @@ void change_state_to(RobotState new_state) {
 }
 
 // 这个函数必须在任务环境里调用
-void move_to_pos(int16_t x, int16_t y, int16_t yaw) {
+bool  move_to_pos(int16_t x, int16_t y, int16_t yaw,uint32_t timeout_ms=8000) {
     taskENTER_CRITICAL();
     nav_control::target_x = x;
     nav_control::target_y = y;
@@ -81,7 +124,11 @@ void move_to_pos(int16_t x, int16_t y, int16_t yaw) {
     taskEXIT_CRITICAL();
 
     nav_control::resetAllPIDs();
-    wait_until([&]() { return nav_control::arrived; });
+    const bool arrived = wait_until_timeout_or([]() -> bool {
+        return nav_control::arrived;
+    }, timeout_ms, 20U);
+
+    return arrived;
 }
 
 /**
@@ -117,6 +164,7 @@ uint8_t get_cmd_from_r1() {
     return cmd;
 }
 
+int start=0;
 void stateMachineTask(void *argument) {
      TypedTopicSubscriber<pub_Xbox_Data> control_xbox_sub("xbox", 8);
     pub_Xbox_Data control_xbox_cmd{};
@@ -125,9 +173,20 @@ void stateMachineTask(void *argument) {
         #ifdef MATCH_CWTY /** ========== 崇武探幽 单项赛 ========== */
 
             case RobotState::begin: {
-                if(control_xbox_sub.TryGet(&control_xbox_cmd)) {
-                    if (control_xbox_cmd.btnView) {//按下View键进入下一状态
+                if(start==1) 
+                {
+                    const bool view_rising_edge =
+                    consume_state_machine_view(control_xbox_cmd.btnView);
+                    control_xbox_cmd.btnView = view_rising_edge;
+                    if (view_rising_edge) {
+                        tail_claw_setMode(TailClawMode::Hold);//锁定当前的位置
+                    }
+                    if (start==1) {//按下View键进入下一状态
                         //开始进行自动
+                        tail_claw_setRollTarget(31);
+                        //tail_claw_setAirPump(true);//闭合夹爪，夹紧武器头
+                        tail_claw_setWeaponClaw(true);
+                        move_to_pos(-500, 15, 0,5000);
                         change_state_to(RobotState::go_to_SHR);
                     }
                 }
@@ -135,9 +194,22 @@ void stateMachineTask(void *argument) {
             }
 
             case RobotState::go_to_SHR: {
-                move_to_pos(1000, 0, 0); // TODO: 填入端头架位置
+                /* if(!move_to_pos(-300, -900, 90,20000))
+                 {
+                    change_state_to(RobotState::stop);
+                    break;
+                 }*/// TODO: 填入端头架位置
                 //发个信号，唤醒通知tail_claw_task去对准武器头
                 //暂时不用
+                //move_to_pos(-286, -840, 90,5000);
+                move_to_pos(-266, -840, 95,50000);
+                tail_claw_setMode(TailClawMode::AutoAlign);//进入自动对齐模式
+
+                //发消息给上位机，他要发消息给我了
+                msg.distance = 1;
+                tail_claw_weapon_event_pub.Publish(msg);
+
+                // tail_claw_task会根据距离数据调整位置
                 change_state_to(RobotState::aim_at_weapon);
                 break;
             }
@@ -147,36 +219,88 @@ void stateMachineTask(void *argument) {
                     // TODO: 判断夹爪是否对准武器头
                     return (weapon_match_state_ & ismatch)!= 0;      //对准
                 });
-                    change_state_to(RobotState::catch_weapon);
+                //关闭武器对准，告诉上位机不用发了
+                tail_claw_msg msg{};
+                msg.distance = 2;
+                tail_claw_weapon_event_pub.Publish(msg);
+
+                tail_claw_setMode(TailClawMode::Hold);//对齐后锁定位置
+                change_state_to(RobotState::catch_weapon);
                 break;
             }
 
             case RobotState::catch_weapon: {
-                weapon_open(true);
+                 /* if (!move_to_pos(-290, -944, 90, 10000U)) {
+                        change_state_to(RobotState::stop);
+                        break;
+                }*/// 对准后向前移动一段距离，具体数值待调试
+                move_to_pos(-266, -970, 95, 10000U);
+                tail_claw_setWeaponClaw(false);//闭合夹爪，夹紧武器头
                 osDelay(100); // 等待夹爪动作完成，具体时间待调试
                 change_state_to(RobotState::rotate_weapon_claw);
                 break;
             }
 
-            case RobotState::rotate_weapon_claw: {
-                    taskENTER_CRITICAL();
-                    tail_claw_roll_target_pos = 90.0f;
-                    taskEXIT_CRITICAL();
+            case RobotState::rotate_weapon_claw: {  
+                    tail_claw_setRollTarget(83.0f);
 
-                    wait_until([]() -> bool {
-                        constexpr float roll_reduction_ratio = 2.0f;
-                        constexpr float target_roll_pos = 90.0f / roll_reduction_ratio;
-                        constexpr float pos_tolerance = 2.0f;
+                    /*wait_until([]() -> bool {
+                        constexpr float roll_reduction_ratio = 2.5f;
+                        constexpr float target_roll_pos = 83.0f * roll_reduction_ratio;
+                        constexpr float pos_tolerance = 5.0f;
                         constexpr float speed_tolerance = 5.0f;
 
                         return fabsf(tail_claw_roll_motor.getCurrentSumPos() - target_roll_pos) < pos_tolerance &&
                             fabsf(tail_claw_roll_motor.getCurrentSpeed()) < speed_tolerance;
-                    });
+                    });*/
+                    const bool roll_ok = wait_until_timeout_or([]() -> bool {
+                    constexpr float roll_reduction_ratio = 2.5f;
+                    constexpr float target_roll_pos = 83.0f * roll_reduction_ratio;
+                     constexpr float pos_tolerance = 4.0f;
+                    constexpr float speed_tolerance = 5.0f;
 
-                    change_state_to(RobotState::wait_for_cmd);
+                    return fabsf(tail_claw_roll_motor.getCurrentSumPos() - target_roll_pos) < pos_tolerance &&
+                    fabsf(tail_claw_roll_motor.getCurrentSpeed()) < speed_tolerance;
+                    }, 3000U, 10U);   // 最多等 3000ms，每 10ms 检查一次
+
+                    //change_state_to(RobotState::stop);
+
+                    change_state_to(RobotState::match_rod);
                     break;
             }
 
+            case RobotState::match_rod: {
+                 /* if (!move_to_pos(20, -100, -90, 4000U)) {
+                         change_state_to(RobotState::stop);
+                            break;
+                     } */// TODO: 填入武器rod位置
+                move_to_pos(20, -100, -95, 4000U);
+                tail_claw_setMode(TailClawMode::AutoAlign);//进入自动对齐模式
+
+                /*static TypedTopicPublisher<tail_claw_msg>
+                tail_claw_rod_event_pub("tail_claw_rod_event");
+                tail_claw_msg msg{};
+                msg.distance = 1;
+                tail_claw_rod_event_pub.Publish(msg);*/
+                tail_claw_msg msg{};
+                msg.distance = 3;
+                tail_claw_weapon_event_pub.Publish(msg);
+                weapon_match_state_&=~ismatch;
+                wait_until([&]() -> bool {
+                    // TODO: 判断夹爪是否对准武器杆
+                    return (weapon_match_state_ & ismatch)!= 0;      //对准
+                });
+
+                //关闭武器对准，告诉上位机不用发了
+                /*msg.distance = 2;
+                tail_claw_rod_event_pub.Publish(msg);
+                tail_claw_setMode(TailClawMode::Hold);*/
+                msg.distance = 4;
+                tail_claw_weapon_event_pub.Publish(msg);
+
+                //change_state_to(RobotState::wait_for_cmd);
+                break;
+            }
             // R2松开武器头夹爪，等待操作手决策，决定是否拼装新的武器
             case RobotState::wait_for_cmd: {
                 clean_previous_cmd();
@@ -192,6 +316,15 @@ void stateMachineTask(void *argument) {
                             return false;
                     }
                 });
+                break;
+            }
+
+            case RobotState::stop:{
+                nav_control::auto_enabled = false;
+                nav_control::target_active = false;
+                nav_control::arrived = false;
+                nav_control::arrival_reported = false;
+
                 break;
             }
 

@@ -7,16 +7,21 @@
 #include "stm32h723xx.h"
 #include "stm32h7xx_hal_gpio.h"
 #include"topic_pool.h"
+#include "topics.hpp"
 
 constexpr float roll_reduction_ratio = 2.5f;     // 翻转的减速比
-constexpr float move_max_distance = 31.0f;        // 尾部移动的最大距离,单位厘米
+constexpr float move_max_distance = 16.0f;        // 尾部移动的最大距离,单位厘米
 constexpr float move_degree_per_cm = 360.0f/(3*3.1415926f); // 齿条齿轮: 1cm平移对应电机转角
 
 // 左右和滚的每次增量
-const float move_step = 0.01f;                   // 每次移动的距离，单位厘米
+const float move_step = 0.005f;                   // 每次移动的距离，单位厘米
 const float roll_step = 0.3f;                    // 每次翻转的角度，单位度
 
 osThreadId_t tail_claw_TaskHandle;;
+
+//命令发布
+static TypedTopicSubscriber<pub_tail_claw_cmd> tail_claw_cmd_sub("tail_claw_cmd", 4);
+static TailClawMode tail_claw_mode = TailClawMode::AutoAlign;
 
 extern C610Motor tail_claw_move_motor;
 extern C620Motor tail_claw_roll_motor;
@@ -29,7 +34,7 @@ static bool btn_share_last = false;
 static bool btn_menu_last = false;
 uint8_t weapon_match_state_ = 0x00;//武器在配对过程中上位机发的信号
 
-float tail_claw_move_target_pos= 2.5f;
+float tail_claw_move_target_pos= 7.0f;
 float tail_claw_roll_target_pos= 0.0f;
 float move_cmd=0.0f;
 
@@ -53,7 +58,7 @@ PID_t tail_claw_move_pos_pid={
 };
 
 PID_t tail_claw_move_speed_pid={
-    .Kp = 700.0f,
+    .Kp = 400.0f,
     .Ki = 0.03f,
     .Kd = 0.02f,
     .MaxOut = 10000.0f,
@@ -63,7 +68,7 @@ PID_t tail_claw_move_speed_pid={
 };
 
 PID_t tail_claw_roll_pos_pid={
-    .Kp = 20.0f,
+    .Kp = 30.0f,
     .Ki = 0.0f,
     .Kd = 1.0f,
     .MaxOut = 100.0f,
@@ -75,7 +80,7 @@ PID_t tail_claw_roll_speed_pid={
     .Kp = 80.0f,
     .Ki = 8.0f,
     .Kd = 1.4f,
-    .MaxOut = 2000.0f,
+    .MaxOut = 3000.0f,
     .DeadBand = 0.3f,
     .Improve = NONE,
 };
@@ -112,7 +117,7 @@ float set_move_pos(float pos,PID_t *pos_pid,PID_t *speed_pid)
 //pos为目标位置，单位为度，函数会返回对应的电机速度命令
 float set_roll_pos(float pos,PID_t *pos_pid,PID_t *speed_pid)
 {
-    float roll_pos = pos / roll_reduction_ratio;          // 根据减速比计算电机轴上的目标位置
+    float roll_pos = pos *roll_reduction_ratio;          // 根据减速比计算电机轴上的目标位置
     float speed_cmd=PID_Calculate(pos_pid,tail_claw_roll_motor.getCurrentSumPos(),roll_pos);
     return PID_Calculate(speed_pid,tail_claw_roll_motor. getCurrentSpeed(),speed_cmd);
 }
@@ -132,7 +137,7 @@ void get_weapon_match_state(tail_claw_msg* msg)
     {
         if(!control_xbox_cmd.btnDirLeft && !control_xbox_cmd.btnDirRight)
         {
-            if(msg->distance < -5)
+            if(msg->distance < -7)
             {
                  weapon_match_state_ = (weapon_match_state_ & ~motor_move_right) | motor_move_left;
 
@@ -151,7 +156,7 @@ void get_weapon_match_state(tail_claw_msg* msg)
                     }
                 }
             }
-            else if(msg->distance > 5)
+            else if(msg->distance > 7)
             {
                  weapon_match_state_ = (weapon_match_state_ & ~motor_move_left) | motor_move_right;
 
@@ -192,16 +197,13 @@ void get_weapon_match_state(tail_claw_msg* msg)
     }
 
     // ---- Xbox D-pad 左右: 2006水平平移 ----
-    if(control_xbox_cmd.btnDirLeft)
+    if(control_xbox_cmd.btnDirRight)
     {
         weapon_match_state_ = (weapon_match_state_ & ~motor_move_right) | motor_move_left;
     }
-    else if(control_xbox_cmd.btnDirRight)
+    else if(control_xbox_cmd.btnDirLeft)
     {
         weapon_match_state_ = (weapon_match_state_ & ~motor_move_left) | motor_move_right;
-    }else
-    {
-        weapon_match_state_ = weapon_match_state_ & ~(motor_move_left | motor_move_right);
     }
 
     // ---- Xbox D-pad 上下: 3508翻转 ----
@@ -248,14 +250,14 @@ void tail_claw_move_close()
         tail_claw_roll_target_pos += roll_step;
     }
 
-    if(air_pump)
+    if(weapon_claw_open)
     {
         HAL_GPIO_WritePin(GPIOG, GPIO_PIN_4, GPIO_PIN_SET);
     }else {
         HAL_GPIO_WritePin(GPIOG, GPIO_PIN_4, GPIO_PIN_RESET);
     }
 
-    if(weapon_claw_open)
+    if(air_pump)
     {
         HAL_GPIO_WritePin(GPIOG, GPIO_PIN_3, GPIO_PIN_SET);
 
@@ -288,26 +290,73 @@ void tail_claw_task(void *argument) {
 
     static int16_t last_distance = 0;
     static bool has_last_distance = false;
+    //时间戳，记录上次收到距离数据的时间，用于判断数据是否过期
+    static TickType_t last_distance_tick = 0;
 
     for(;;)
     {   
         static TypedTopicSubscriber<tail_claw_msg> tail_claw_subscriber("pc_tail_claw_pub",8);
+        pub_tail_claw_cmd tail_claw_cmd{};
+        while (tail_claw_cmd_sub.TryGet(&tail_claw_cmd)) {
+            const TailClawMode previous_mode = tail_claw_mode;//处理尾部夹爪模式切换时的一些状态重置
+            tail_claw_mode = tail_claw_cmd.mode;
+
+            //PCdistance和xbox
+            if (previous_mode != TailClawMode::AutoAlign &&
+                tail_claw_mode == TailClawMode::AutoAlign) {
+                //进入AutoAlign 时还会清一次匹配状态：
+                weapon_match_state_ &= ~ismatch;
+                match_ok_count = 0;
+                match_lost_count = 0;
+            }
+
+            //翻转接口
+            if (tail_claw_cmd.set_roll_target) {
+                tail_claw_roll_target_pos = tail_claw_cmd.roll_target_deg;
+            }
+            //开合接口
+            if (tail_claw_cmd.set_weapon_claw) {
+                weapon_claw_open = tail_claw_cmd.weapon_claw_close;
+            }
+
+            if (tail_claw_cmd.set_air_pump) {
+                air_pump = tail_claw_cmd.air_pump_on;
+                }
+        }
+
         tail_claw_msg msg;
         if(tail_claw_subscriber.TryGet(&msg))
         {
            last_distance = msg.distance;
            has_last_distance = true;
+           last_distance_tick = xTaskGetTickCount();
         }
 
-        if(has_last_distance)
-        {
-            tail_claw_msg saved_msg{last_distance};
-            get_weapon_match_state(&saved_msg);    // 上位机+Xbox 合并控制
+        const bool distance_fresh =
+            has_last_distance &&
+            ((xTaskGetTickCount() - last_distance_tick) < pdMS_TO_TICKS(200));
+
+
+        //切换到自动对齐模式时，才根据距离数据调整位置；
+        // 手动模式时完全由Xbox输入控制；
+        // 禁用模式时不受任何输入影响，保持当前位置
+        if (tail_claw_mode == TailClawMode::AutoAlign) {
+            if(distance_fresh)
+            {
+                tail_claw_msg saved_msg{last_distance};
+                get_weapon_match_state(&saved_msg);
+            }
+            else
+            {
+                get_weapon_match_state(nullptr);
+                weapon_match_state_ &= ~ismatch;
+            }
+        } else if (tail_claw_mode == TailClawMode::Manual) {
+            get_weapon_match_state(nullptr);
+        } else {
+            weapon_match_state_ &= ~(motor_move_left | motor_move_right | motor_roll_up | motor_roll_down);
         }
-        else
-        {
-            get_weapon_match_state(nullptr);       // 仅Xbox手柄控制
-        }
+
         if (consumeButtonRisingEdge(control_xbox_cmd.btnShare, &btn_share_last)) {
                     weapon_claw_open = !weapon_claw_open;
         }
@@ -315,11 +364,18 @@ void tail_claw_task(void *argument) {
         if (consumeButtonRisingEdge(control_xbox_cmd.btnMenu, &btn_menu_last)) {
                     air_pump = !air_pump;
         }
+        //禁用模式时，不执行任何操作，保持当前状态
+        if (tail_claw_mode == TailClawMode::Disabled) {
+            tail_claw_move_motor.setMotorCmd(0.0f);
+            tail_claw_roll_motor.setMotorCmd(0.0f);
+            vTaskDelayUntil(&currentTime, 2);
+            continue;
+        }
         tail_claw_move_close();
         weapon_match_state_ &= ~(motor_move_left | motor_move_right | motor_roll_up | motor_roll_down);
         //每次执行完都清零，等待下一次指令,只清理左右移动和翻转的指令，
         // ismatch位由状态机根据稳定的对准结果来控制，不受Xbox输入的影响
-        vTaskDelayUntil(&currentTime, 1);
+        vTaskDelayUntil(&currentTime, 2);
     }
 }
 

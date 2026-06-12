@@ -87,6 +87,25 @@ typedef struct {
   bool active;          // true=2006自动导航激活
   bool request_lower;   // 到达目标后请求降回低位
 } pub_high_nav_cmd;
+//尾部夹爪控制指令
+enum class TailClawMode : uint8_t {
+  Manual = 0,            // 手动模式 根据Xbox输入控制夹爪移动和翻转
+  AutoAlign,             // 自动对齐模式 根据Xbox输入控制夹爪移动和翻转
+  Hold,                   // 锁定模式 锁定当前位置
+  Disabled,               // 禁用模式 禁用所有功能
+};
+// 这个结构体既用作状态机发给tail_claw_task的命令，也用作上位机发给tail_claw_task的命令
+typedef struct {
+  TailClawMode mode;                 // 尾部夹爪模式
+  bool set_roll_target;              // true=设置旋转目标
+  float roll_target_deg;             // 旋转目标角度 (度)
+  bool set_weapon_claw;               // true=设置武器夹爪
+  bool weapon_claw_close;             // true=武器夹爪关闭
+
+  bool set_air_pump;
+  bool air_pump_on;
+} pub_tail_claw_cmd;
+// 上位机发给tail_claw_task的距离数据
 struct tail_claw_msg {
    int16_t distance;
 };
