@@ -45,10 +45,8 @@ extern Logger logger;
  *  @param argument 任务参数
  */
 void debugTask(void *argument) {
-  // osThreadExit();
-  static uint8_t test[50] = {0};
+  osThreadExit();
   for (;;) {
-    test[0] = test[0];
-    osDelay(100);
+    osDelay(1);
   }
 }
