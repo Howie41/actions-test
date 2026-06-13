@@ -14,7 +14,9 @@
 #include "control_task.h"
 #include "NavProtocol.hpp"
 #include "chassis_task.h"
+#include "lift_task.h"
 #include "pid_controller.h"
+#include "stair_assist.h"
 #include "topic_pool.h"
 #include "topics.hpp"
 #include "tracking.h"
@@ -28,13 +30,20 @@ osThreadId_t ControlTaskHandle;
 TypedTopicPublisher<pub_chassis_cmd> chassis_data_pub("chassis_cmd");
 pub_chassis_cmd chassis_cmd{};
 
+TypedTopicPublisher<pub_lift_cmd> lift_data_pub("lift_cmd");
+pub_lift_cmd lift_cmd{};
+
 static TypedTopicSubscriber<pub_Xbox_Data> control_xbox_sub("xbox", 8);
 pub_Xbox_Data control_xbox_cmd{};
 
 static bool xbox_mode_last = false;
 static bool xbox_lb_last = false;
 static bool xbox_rb_last = false;
-
+static bool xbox_ls_last = false;
+static bool xbox_rs_last = false;
+static bool stair_assist_high_request_latched = false;
+static bool stair_assist_low_request_latched = false;
+//处理底盘控制输入并发布底盘指令
 void Xbox_Data_Process() {
   if (ABS(control_xbox_cmd.joyLVert - 32767) > 2000) {
     chassis_cmd.linear_x_ =
@@ -52,11 +61,52 @@ void Xbox_Data_Process() {
 
   if (ABS(control_xbox_cmd.joyRHori - 32767) > 2000) {
     chassis_cmd.omega_ =
-        -(int)(control_xbox_cmd.joyRHori - 32767) / 32767.0f * MAX_VELOCITY;
+        -(int)(control_xbox_cmd.joyRHori - 32767) / 32767.0f * MAX_ROTATION_VELOCITY;
   } else {
     chassis_cmd.omega_ = 0.0f;
   }
 }
+//处理升降控制输入并发布升降指令
+static bool xbox_y_last = false;
+static bool xbox_a_last = false;
+static TickType_t xbox_y_press_tick = 0;
+static TickType_t xbox_a_press_tick = 0;
+constexpr TickType_t kLiftTapTimeout = pdMS_TO_TICKS(300);  // 300ms以内算"点按"
+void Lift_Data_Process(){
+  // === Y键：按下记录时刻，松开判断是否短按 ===
+    if (control_xbox_cmd.btnY && !xbox_y_last) {
+        // 上升沿：记录按下时刻
+        xbox_y_press_tick = xTaskGetTickCount();
+    }
+    // 下降沿（松开）且持续时间 < 300ms → 短按，触发去高位
+    lift_cmd.request_high = false;
+    if (!control_xbox_cmd.btnY && xbox_y_last) {
+        if ((xTaskGetTickCount() - xbox_y_press_tick) < kLiftTapTimeout) {
+            lift_cmd.request_high = true;
+        }
+    }
+    xbox_y_last = control_xbox_cmd.btnY;
+    if (control_xbox_cmd.btnA && !xbox_a_last) {
+        xbox_a_press_tick = xTaskGetTickCount();
+    }
+    lift_cmd.request_low = false;
+    if (!control_xbox_cmd.btnA && xbox_a_last) {
+        if ((xTaskGetTickCount() - xbox_a_press_tick) < kLiftTapTimeout) {
+            lift_cmd.request_low = true;
+        }
+    }
+    xbox_a_last = control_xbox_cmd.btnA;
+    lift_cmd.lift_up = control_xbox_cmd.btnY;
+    lift_cmd.lift_down = control_xbox_cmd.btnA;
+
+  if(ABS(control_xbox_cmd.joyRVert - 32767) > 2000){
+    lift_cmd.lift_2006_input = (int)(control_xbox_cmd.joyRVert - 32767) / 32767.0f * MAX_LIFT_VELOCITY;
+  } else {
+    lift_cmd.lift_2006_input = 0.0f;
+  }
+}
+  
+
 
 static bool consumeModeSwitch(bool current_state) {
   const bool rising_edge = current_state && !xbox_mode_last;
@@ -70,6 +120,78 @@ static bool consumeButtonRisingEdge(bool current_state, bool *last_state) {
   return rising_edge;
 }
 
+static void updateStairAssistSwitch() {
+  if (consumeButtonRisingEdge(control_xbox_cmd.btnLS, &xbox_ls_last)) {
+    const StairAssistMode next_mode =
+        (stairAssistMode() == StairAssistMode::ClimbUp)
+            ? StairAssistMode::Descend
+            : StairAssistMode::ClimbUp;
+    stairAssistSetMode(next_mode);
+    stair_assist_high_request_latched = false;
+    stair_assist_low_request_latched = false;
+  }
+
+  if (consumeButtonRisingEdge(control_xbox_cmd.btnRS, &xbox_rs_last)) {
+    const bool next_enabled = !stairAssistEnabled();
+    stairAssistSetEnabled(next_enabled);
+    stairAssistSetAutoLowerEnabled(next_enabled);
+    stair_assist_high_request_latched = false;
+    stair_assist_low_request_latched = false;
+  }
+}
+
+static void applyManualStairAssist() {
+  stairAssistUpdate();
+
+  if (highModeActive()) {
+    stair_assist_high_request_latched = false;
+  } else {
+    stair_assist_low_request_latched = false;
+  }
+
+  if (!stairAssistEnabled()) {
+    stair_assist_high_request_latched = false;
+    stair_assist_low_request_latched = false;
+    return;
+  }
+
+  if (nav_control::auto_enabled) {
+    return;
+  }
+
+  if (!highModeActive()) {
+    const bool should_request_high =
+        (stairAssistMode() == StairAssistMode::ClimbUp)
+            ? stairAssistSuggestClimbUp()
+            : stairAssistSuggestDescendHighMode();
+
+    if (!stair_assist_high_request_latched && should_request_high) {
+      lift_cmd.request_high = true;
+      stair_assist_high_request_latched = true;
+      stair_assist_low_request_latched = false;
+    }
+    return;
+  }
+
+  if (!stairAssistAutoLowerEnabled()) {
+    return;
+  }
+
+  if (stair_assist_low_request_latched) {
+    return;
+  }
+
+  const bool should_request_low =
+      (stairAssistMode() == StairAssistMode::ClimbUp)
+          ? stairAssistShouldLowerAfterClimbAdvance()
+          : stairAssistShouldLowerAfterDescendRetreat();
+
+  if (should_request_low) {
+    lift_cmd.request_low = true;
+    stair_assist_low_request_latched = true;
+  }
+}
+
 void controlInit() {
   if (!chassis_data_pub.IsValid()) {
     return;
@@ -77,6 +199,10 @@ void controlInit() {
   if (!control_xbox_sub.IsValid()) {
     return;
   }
+  if (!lift_data_pub.IsValid()) {
+  return;
+}
+  stairAssistInit();
 }
 
 void controlTask(void *argument) {
@@ -85,6 +211,8 @@ void controlTask(void *argument) {
   controlInit();
   for (;;) {
     if (control_xbox_sub.TryGet(&control_xbox_cmd)) {
+      updateStairAssistSwitch();
+
       if (consumeModeSwitch(control_xbox_cmd.btnXbox)) {
         nav_control::auto_enabled = !nav_control::auto_enabled;
 
@@ -115,6 +243,9 @@ void controlTask(void *argument) {
           chassis_cmd.linear_y_ = 0.0f;
           chassis_cmd.omega_ = 0.0f;
         }
+        Lift_Data_Process();
+        applyManualStairAssist();
+        lift_data_pub.Publish(lift_cmd);
         chassis_cmd.nav_mode_ = false;
         chassis_data_pub.Publish(chassis_cmd);
       }

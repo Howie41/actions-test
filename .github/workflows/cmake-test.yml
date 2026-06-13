@@ -1,0 +1,89 @@
+name: CMake Build & Report
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR 编号（若想将结果评论到指定 PR，请输入数字；留空则仅编译不评论）'
+        required: false
+        default: ''
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  build-and-comment:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ================= 🚀 核心优化步骤 =================
+      # 使用专用 Action 替代 apt-get。首次下载后自动缓存，后续秒级加载。
+      # 官方 ARM 工具链已原生自带 Newlib 库，无需额外安装。
+      - name: Install ARM GCC Toolchain
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: 'latest' # 也可以指定具体版本，例如 '10.3-2021.07'
+
+      - name: Configure CMake
+        run: cmake -B build/Debug -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=cmake/gcc-arm-none-eabi.cmake
+
+      - name: Build and Parse Logs
+        run: |
+          cmake --build build/Debug > build.log 2>&1 && echo "BUILD_STATUS=success" >> $GITHUB_ENV || echo "BUILD_STATUS=failure" >> $GITHUB_ENV
+          
+          WARNINGS=$(grep -i "warning:" build.log | wc -l | awk '{print $1}')
+          ERRORS=$(grep -i "error:" build.log | wc -l | awk '{print $1}')
+          
+          echo "WARNINGS=$WARNINGS" >> $GITHUB_ENV
+          echo "ERRORS=$ERRORS" >> $GITHUB_ENV
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const prNumber = context.issue.number || context.payload.inputs?.pr_number;
+            
+            if (!prNumber) {
+              console.log("提示：未检测到自动 PR 上下文，且未手动输入 PR 编号。将跳过评论步骤。");
+              return;
+            }
+            
+            const warnings = process.env.WARNINGS;
+            const errors = process.env.ERRORS;
+            const status = process.env.BUILD_STATUS;
+            
+            const isSuccess = status === "success";
+            const statusEmoji = isSuccess ? "✅" : "❌";
+            const statusText = isSuccess ? "编译通过" : "编译失败";
+            
+            const body = `### 🛠️ CMake 自动化编译报告 (Debug/ARM)
+            
+            **编译状态**: ${statusEmoji} **${statusText}**
+            
+            | 统计项 | 数量 |
+            | :--- | :--- |
+            | 🔴 **Errors** | \`${errors}\` |
+            | 🟡 **Warnings** | \`${warnings}\` |
+            
+            ${isSuccess ? '> 🎉 恭喜，固件编译成功！请检查并清理潜在的 Warning。' : '> ⚠️ **注意**: 编译未通过，请点击上面的 \`Details\` 查看具体报错日志并修复。'}
+            `;
+            
+            await github.rest.issues.createComment({
+              issue_number: parseInt(prNumber),
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Verify Build Success
+        if: env.BUILD_STATUS == 'failure'
+        run: |
+          echo "编译失败，正在阻断当前环境..."
+          exit 1

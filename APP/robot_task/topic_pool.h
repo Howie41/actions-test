@@ -65,10 +65,56 @@ typedef struct {
   bool nav_mode_;
 } pub_chassis_cmd;
 
+
+typedef struct{
+ bool lift_up;        //按住Y 持续上升
+ bool lift_down;      //按住A 持续下降
+ float lift_2006_input;
+
+ bool request_high;  //按一下Y 请求升高到高位
+ bool request_low;   //按一下A 请求降低到低位
+} pub_lift_cmd;
+
 typedef struct {
   uint8_t address1;
   uint8_t address2;
   uint8_t data;
 } pub_infrared_msg;
+
+typedef struct {
+  float forward_speed;  // 前进速度 (RPM)，两轮同向
+  float omega;          // 差速旋转 (RPM)，正值=左轮加速右轮减速
+  bool active;          // true=2006自动导航激活
+  bool request_lower;   // 到达目标后请求降回低位
+} pub_high_nav_cmd;
+struct tail_claw_msg {
+   int16_t distance;
+};
+
+// ===== PcCom 二进制导航协议结构体 =====
+
+// 上位机→下位机: 上报当前激光雷达坐标 (消息码 0x0101)
+typedef struct {
+  int16_t x;    // 世界坐标系 X (mm)
+  int16_t y;    // 世界坐标系 Y (mm)
+  int16_t yaw;  // 上位机计算的 yaw 角度 (度*100 或 度)，仅供记录，实际导航用陀螺仪
+} pc_nav_position_t;
+
+// 上位机→下位机: 下发目标点 (消息码 0x0102)
+typedef struct {
+  int16_t x;    // 目标 X (mm)
+  int16_t y;    // 目标 Y (mm)
+  int16_t yaw;  // 目标 yaw (度)
+} pc_nav_target_t;
+
+// 下位机→上位机: 事件通知 (消息码 0x0201~0x0205)
+typedef struct {
+  uint16_t event_code;  // 事件码，对应 PcCmd 中的 nav_* 枚举值
+} pc_nav_event_t;
+
+// 二维码扫描结果
+typedef struct {
+  uint8_t data;
+} pub_qr_code_parsed; // topic = "qr_code_parsed"
 
 #pragma pack()
