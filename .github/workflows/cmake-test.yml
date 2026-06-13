@@ -3,7 +3,6 @@ name: CMake Build & Report
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  # 支持手动触发
   workflow_dispatch:
     inputs:
       pr_number:
@@ -23,10 +22,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ================= 🚀 核心优化步骤 =================
+      # 使用专用 Action 替代 apt-get。首次下载后自动缓存，后续秒级加载。
+      # 官方 ARM 工具链已原生自带 Newlib 库，无需额外安装。
       - name: Install ARM GCC Toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: 'latest' # 也可以指定具体版本，例如 '10.3-2021.07'
 
       - name: Configure CMake
         run: cmake -B build/Debug -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=cmake/gcc-arm-none-eabi.cmake
@@ -35,8 +37,8 @@ jobs:
         run: |
           cmake --build build/Debug > build.log 2>&1 && echo "BUILD_STATUS=success" >> $GITHUB_ENV || echo "BUILD_STATUS=failure" >> $GITHUB_ENV
           
-          WARNINGS=$(grep -c -i "warning:" build.log || echo 0)
-          ERRORS=$(grep -c -i "error:" build.log || echo 0)
+          WARNINGS=$(grep -i "warning:" build.log | wc -l | awk '{print $1}')
+          ERRORS=$(grep -i "error:" build.log | wc -l | awk '{print $1}')
           
           echo "WARNINGS=$WARNINGS" >> $GITHUB_ENV
           echo "ERRORS=$ERRORS" >> $GITHUB_ENV
@@ -46,7 +48,6 @@ jobs:
         if: always()
         with:
           script: |
-            // 兼容自动 PR 事件和手动输入的 PR 编号
             const prNumber = context.issue.number || context.payload.inputs?.pr_number;
             
             if (!prNumber) {
@@ -62,7 +63,7 @@ jobs:
             const statusEmoji = isSuccess ? "✅" : "❌";
             const statusText = isSuccess ? "编译通过" : "编译失败";
             
-            const body = `### 🛠️ CMake 自动化编译报告 (Debug/ARM - 手动触发/更新)
+            const body = `### 🛠️ CMake 自动化编译报告 (Debug/ARM)
             
             **编译状态**: ${statusEmoji} **${statusText}**
             
