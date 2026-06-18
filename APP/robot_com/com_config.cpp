@@ -151,14 +151,10 @@ Hwt101Parser hwt101_parser;
 NavProtocol nav_protocol;
 // 红外通信
 InfraredModule infrared_module(uart6_port);
-#if LASER_MEASURE_ENABLE
-LaserMeasure laser1(uart7_port, 0x50);
-LaserMeasure laser2(uart8_port, 0x50);
-#endif
 // 日志
 Logger logger(uart10_port);
 
-// USB
+// usb
 osSemaphoreId_t usbcdc_rx_semphore = NULL;
 ROSProtocol ros_protocol(nullptr, &UsbPort::Instance());
 
