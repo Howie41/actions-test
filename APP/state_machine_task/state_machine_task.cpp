@@ -19,9 +19,22 @@
 osThreadId_t StateMachineTaskHandle;
 
 static std::atomic<RobotState> current_state{RobotState::begin};
+static std::atomic<PathCmd> current_path_cmd{PathCmd::unknown}; // 初始值对下位机来说没有意义
 
 TypedTopicSubscriber<pub_infrared_msg> infrared_sub(InfraredModule::INFRARED_MSG_TOPIC, 1);
 TypedTopicSubscriber<pub_qr_code_parsed> qr_code_sub("qr_code_parsed", 1);
+
+TypedTopicSubscriber<PathCmd> path_cmd_sub("pc_path_cmd", 1); // 接收路径规划cmd
+TypedTopicPublisher<bool> path_cmd_request_pub("pc_path_cmd_request"); // 请求路径规划cmd
+
+static struct Waypoint wp_init{-550, 150, 0};
+static struct Waypoint wp_before_MF{2280, 1600, 0};
+static struct Waypoint wp_corridor{2050, 4000, 0};
+static struct Waypoint wp_before_uphill{8860, 3760, 0};
+static struct Waypoint wp_after_uphill{11930, 3760, 0};
+static struct Waypoint wp_before_rotate{11830, 1980, 0};
+static struct Waypoint wp_after_rotate{11350, 1860, -90};
+static struct Waypoint wp_grid{11170, -980, -90};
 
 /**
  * @brief 等待直到条件满足
@@ -65,17 +78,21 @@ bool move_to_pos(int16_t x, int16_t y, int16_t yaw, uint32_t timeout_ms = 0) {
     nav_control::target_y = y;
     nav_control::target_yaw = yaw;
     nav_control::auto_enabled = true;
-    nav_control::arrived = false;
+    nav_control::arrived.store(false);
     nav_control::target_active = true;
     nav_control::arrival_reported = false;
     nav_control::resetAllPIDs();
     taskEXIT_CRITICAL();
 
     if (timeout_ms == 0) {
-      wait_until([&]() { return nav_control::arrived; });
+      wait_until([&]() { return nav_control::arrived.load(); });
       return true;
     }
-    return wait_until_timeout_or([&]() { return nav_control::arrived; }, timeout_ms);
+    return wait_until_timeout_or([&]() { return nav_control::arrived.load(); }, timeout_ms);
+}
+
+bool move_to_pos(const Waypoint &wp, uint32_t timeout_ms = 0) {
+    return move_to_pos(wp.x, wp.y, wp.yaw, timeout_ms);
 }
 
 /**
@@ -111,46 +128,118 @@ uint8_t get_cmd_from_r1() {
     return cmd;
 }
 
+volatile bool triggered{false};
+
 void stateMachineTask(void *argument) {
     for (;;) {
         switch (current_state.load()) {
         #ifdef MATCH_CWTY /** ========== 崇武探幽 单项赛 ========== */
 
             case RobotState::begin: {
+                wait_until([&]() -> bool { return triggered; });
+                triggered = false;
+                change_state_to(RobotState::go_to_SHR);
                 break;
             }
 
             case RobotState::go_to_SHR: {
+                move_to_pos(wp_corridor, 0);
+                change_state_to(RobotState::aim_at_weapon);
                 break;
             }
 
             case RobotState::aim_at_weapon: {
+                move_to_pos(wp_before_uphill, 0);
+                change_state_to(RobotState::catch_weapon);
                 break;
             }
 
             case RobotState::catch_weapon: {
+                move_to_pos(wp_after_uphill, 0);
+                change_state_to(RobotState::rotate_weapon_claw);
                 break;
             }
 
             case RobotState::rotate_weapon_claw: {
+                move_to_pos(wp_before_rotate, 0);
+                change_state_to(RobotState::wait_for_cmd);
                 break;
             }
 
-            // R2松开武器头夹爪，等待操作手决策，决定是否拼装新的武器
             case RobotState::wait_for_cmd: {
-                clean_previous_cmd();
+                // clean_previous_cmd();
+                // wait_until([&]() -> bool {
+                //     switch (get_cmd_from_r1()) {
+                //         case 0x1A: // 夹取新的武器头
+                //             change_state_to(RobotState::go_to_SHR);
+                //             return true;
+                //         case 0x1B: // 进入梅林
+                //             change_state_to(RobotState::go_to_MF_entrance);
+                //             return true;
+                //         default:
+                //             return false;
+                //     }
+                // });
+                move_to_pos(wp_after_rotate, 0);
+                change_state_to(RobotState::test1);
+                break;
+            }
+
+            case RobotState::test1: {
+                move_to_pos(wp_grid, 0);
+                change_state_to(RobotState::begin);
+                break;
+            }
+
+            case RobotState::go_to_MF_entrance: {
+                break;
+            }
+
+            case RobotState::request_for_path_cmd: {
+                path_cmd_request_pub.Publish(true); // 发一次 PathCmd::request
+
+                PathCmd cmd;
                 wait_until([&]() -> bool {
-                    switch (get_cmd_from_r1()) {
-                        case 0x1A: // 夹取新的武器头
-                            change_state_to(RobotState::go_to_SHR);
-                            return true;
-                        case 0x1B: // 进入梅林
-                            change_state_to(RobotState::go_to_MF);
-                            return true;
-                        default:
-                            return false;
-                    }
+                    return path_cmd_sub.TryGet(&cmd);
                 });
+
+                current_path_cmd.store(cmd); // 给其他后续状态读取
+                switch (cmd) {
+                    case PathCmd::move_forward:
+                    case PathCmd::move_backward:
+                    case PathCmd::turn_left_90:
+                    case PathCmd::turn_right_90:
+                    case PathCmd::move_left:
+                    case PathCmd::move_right:
+                        change_state_to(RobotState::execute_chassis_action);
+                        break;
+                    case PathCmd::grab_low_r2kfs:
+                    case PathCmd::grab_mid_r2kfs:
+                    case PathCmd::grab_high_r2kfs:
+                    case PathCmd::drop_and_grab_new_kfs:
+                        change_state_to(RobotState::execute_arm_action);
+                        break;
+                    case PathCmd::no_more_commands:
+                        change_state_to(RobotState::go_to_MF_exit);
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            case RobotState::execute_chassis_action: {
+                break;
+            }
+
+            case RobotState::execute_arm_action: {
+                break;
+            }
+
+            case RobotState::go_to_MF_exit: {
+                break;
+            }
+
+            case RobotState::stop: {
                 break;
             }
 
